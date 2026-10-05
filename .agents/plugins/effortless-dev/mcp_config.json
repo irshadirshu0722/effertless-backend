@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "artemis": {
+      "command": "/Users/nandu.rajeev/backend/effortless/tools/artemis/.venv/bin/python",
+      "args": [
+        "-m",
+        "mcp_server"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "/Users/nandu.rajeev/backend/effortless/tools/artemis",
+        "ARTEMIS_DESKTOP_NOTIFY": "true",
+        "ANDROID_HOME": "/Users/nandu.rajeev/Library/Android/sdk"
+      },
+      "cwd": "/Users/nandu.rajeev/backend/effortless/tools/artemis"
+    }
+  }
+}
