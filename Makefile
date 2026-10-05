@@ -27,21 +27,21 @@ rebuild: ## Rebuild and restart the backend stack
 logs: ## Follow backend stack logs
 	docker compose -f $(COMPOSE_FILE) logs -f
 
-dev: ## Run FastAPI locally with hot reload
+dev:
 	poetry run uvicorn --app-dir src main:app --reload --port 8000
 
-test: ## Run the backend test suite
+test: 
 	poetry run pytest
 
-lint: ## Run Ruff lint checks
+lint: 
 	poetry run ruff check .
 
-format: ## Format backend code with Ruff
+format: 
 	poetry run ruff check --fix .
 	poetry run ruff format .
 
-migrate: ## Apply database migrations
+migrate:
 	poetry run alembic upgrade head
 
-migration: ## Create a migration; use message="describe change"
+migration:
 	poetry run alembic revision --autogenerate -m "$(message)"
