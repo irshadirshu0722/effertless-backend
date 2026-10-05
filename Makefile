@@ -1,4 +1,4 @@
-.PHONY: help infra-up infra-down infra-clean up down rebuild logs dev test lint format migrate migration
+.PHONY: help infra-up infra-down infra-clean up down rebuild logs dev test smoke lint format migrate migration pre-commit
 
 COMPOSE_FILE = docker-compose.yml
 
@@ -32,6 +32,10 @@ dev:
 
 test: 
 	poetry run pytest
+
+smoke:
+	docker compose -f $(COMPOSE_FILE) exec -T backend python scripts/smoke_test.py
+
 
 lint: 
 	poetry run ruff check .

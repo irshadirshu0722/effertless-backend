@@ -24,6 +24,12 @@ Run the backend directly during development with:
 make dev-backend
 ```
 
+After PostgreSQL, Redis, and the application are running, execute the minimal smoke check:
+
+```bash
+make smoke
+```
+
 The health endpoints are:
 
 - `GET /health` returns `{"status": "ok"}`.

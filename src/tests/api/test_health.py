@@ -10,6 +10,17 @@ async def test_health_check(async_client: AsyncClient):
     response = await async_client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert response.headers["X-Request-Id"]
+
+
+@pytest.mark.asyncio
+async def test_request_id_is_propagated(async_client: AsyncClient):
+    request_id = "smoke-request-id"
+
+    response = await async_client.get("/health", headers={"X-Request-Id": request_id})
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-Id"] == request_id
 
 
 @pytest.mark.asyncio

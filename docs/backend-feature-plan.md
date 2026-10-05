@@ -37,15 +37,26 @@ These decisions must be resolved before endpoint implementation:
 
 **Commit:** `feat(TN-001): establish backend contract baseline`
 
-Reconcile and update `docs/contracts/api-contract.md` before implementing new endpoints. Standardize route prefixes, authentication transport, request and response field names, error codes, request IDs, health responses, and the WebSocket message protocol.
+Reconcile and update `docs/contracts/api-contract.md` before implementing new endpoints. Standardize route prefixes, authentication transport, request and response field names, error codes, request IDs, health responses, and the WebSocket message protocol. Add a minimal smoke test for the running application and its critical local dependencies.
 
 **Backend work:**
 
-- Align `src/api/` route registration and `src/schemas/` models with the selected contract.
+- Align `src/app/api/` route registration and `src/app/schemas/` models with the selected contract.
 - Define backward-compatibility rules for published `/v1` endpoints.
 - Keep provider-specific fields out of public contracts.
+- Add only the smoke coverage needed to confirm the current stack is alive.
 
 **Tests:** schema serialization, OpenAPI paths, response status/error mapping, and WebSocket message compatibility tests.
+
+**Minimal smoke test scope:**
+
+- Start PostgreSQL, Redis, and the FastAPI application through Docker Compose.
+- Confirm the application responds to `GET /health` with HTTP 200.
+- Confirm `GET /health/ready` reports PostgreSQL and Redis as connected.
+- Confirm PostgreSQL accepts a non-mutating connectivity check such as `SELECT 1`.
+- Confirm Redis responds to `PING`.
+- Fail fast with a useful service-specific message; do not create business data.
+- Keep this smoke test separate from unit tests and expand it only when another critical runtime dependency is introduced.
 
 ### 2. Backend Foundation
 
@@ -58,13 +69,13 @@ Finalize the async FastAPI application, configuration loading, dependency inject
 **Backend work:**
 
 - `src/main.py`
-- `src/api/`
-- `src/core/config.py`
-- `src/core/exceptions.py`
-- `src/core/logging.py`
+- `src/app/api/`
+- `src/app/core/config.py`
+- `src/app/core/exceptions.py`
+- `src/app/core/logging.py`
 - Environment and Docker configuration
 
-**Tests:** app factory, route registration, health/readiness behavior, settings validation, missing-configuration behavior, and dependency-chain smoke tests.
+**Tests:** app factory, route registration, health/readiness behavior, settings validation, missing-configuration behavior, and the minimal stack smoke test defined above.
 
 ### 3. GCP Identity Platform Authentication
 
@@ -76,10 +87,10 @@ Implement backend-only verification of GCP Identity Platform tokens and extracti
 
 **Backend work:**
 
-- Authentication port in `src/ports/`
-- GCP adapter in `src/adapters/`
-- FastAPI dependency wiring in `src/api/dependencies.py`
-- Security configuration in `src/core/`
+- Authentication port in `src/app/ports/`
+- GCP adapter in `src/app/adapters/`
+- FastAPI dependency wiring in `src/app/api/dependencies.py`
+- Security configuration in `src/app/core/`
 - Consistent HTTP and WebSocket handshake authentication
 
 Verify current Google documentation before selecting SDK calls, issuer, audience, or token settings. Never put provider credentials in the client or domain layer.
@@ -99,8 +110,8 @@ Implement immutable language entities/value objects, supported-language registry
 - `src/app/domain/entities/`
 - `src/app/domain/value_objects/`
 - `src/app/domain/languages/`
-- `src/schemas/`
-- `src/api/routes/languages.py`
+- `src/app/schemas/`
+- `src/app/api/routes/languages.py`
 
 Expose abstract capabilities only. Do not expose Sarvam model names in the domain or public response.
 
@@ -208,8 +219,8 @@ Add structured logging, request/session correlation, provider latency metrics, s
 
 **Backend work:**
 
-- `src/core/logging.py`
-- `src/core/exceptions.py`
+- `src/app/core/logging.py`
+- `src/app/core/exceptions.py`
 - Request-ID middleware
 - Redis-backed rate limiting and subscription-tier checks
 - Provider and WebSocket instrumentation

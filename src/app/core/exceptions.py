@@ -15,6 +15,7 @@ Error response format follows docs/api/errors.md:
 """
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 # ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ class AppError(Exception):
 
     def __init__(
         self,
-        code: str = "INTERNAL_ERROR",
+        code: str = "INTERNAL_SERVER_ERROR",
         message: str = "An unexpected error occurred.",
         status_code: int = 500,
     ):
@@ -163,6 +164,11 @@ class ProviderTimeoutError(AppError):
 def register_exception_handlers(app: FastAPI) -> None:
     """Register centralized exception handlers on the FastAPI app."""
 
+    def request_id_for(request: Request) -> str:
+        return getattr(request.state, "request_id", None) or request.headers.get(
+            "X-Request-Id", "unknown"
+        )
+
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         """Convert AppError subclasses to the standard error response format."""
@@ -172,6 +178,24 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": exc.code,
                     "message": exc.message,
+                    "request_id": request_id_for(request),
+                }
+            },
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Return the public validation error without exposing internals."""
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed.",
+                    "request_id": request_id_for(request),
                 }
             },
         )
@@ -187,8 +211,9 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=500,
             content={
                 "error": {
-                    "code": "INTERNAL_ERROR",
+                    "code": "INTERNAL_SERVER_ERROR",
                     "message": "An unexpected error occurred.",
+                    "request_id": request_id_for(request),
                 }
             },
         )

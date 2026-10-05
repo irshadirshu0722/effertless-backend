@@ -7,8 +7,9 @@ happens here. No business logic should exist in this file.
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.api.routes import health, v1
 from app.core.config import get_settings
@@ -51,6 +52,14 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.app_debug else None,
         redoc_url="/redoc" if settings.app_debug else None,
     )
+
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        request_id = request.headers.get("X-Request-Id") or str(uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        return response
 
     # Register exception handlers
     register_exception_handlers(app)
