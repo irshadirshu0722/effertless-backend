@@ -45,3 +45,6 @@ migrate:
 
 migration:
 	poetry run alembic revision --autogenerate -m "$(message)"
+
+pre-commit:
+	poetry run pre-commit run --all-files
