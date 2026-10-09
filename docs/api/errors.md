@@ -20,8 +20,10 @@ All errors follow a consistent format:
 
 | Code                        | HTTP Status | Description                                     |
 | --------------------------- | ----------- | ----------------------------------------------- |
-| `AUTHENTICATION_REQUIRED`   | 401         | No API key provided                             |
-| `INVALID_API_KEY`           | 403         | API key is invalid or revoked                   |
+| `AUTHENTICATION_REQUIRED`   | 401         | No bearer token provided                        |
+| `INVALID_AUTH_TOKEN`        | 401         | Bearer token is invalid, expired, or malformed  |
+| `AUTH_TOKEN_REVOKED`        | 401         | Bearer token has been revoked                   |
+| `AUTHORIZATION_FAILED`      | 403         | User is authenticated but not allowed           |
 | `INVALID_LANGUAGE`          | 400         | Language code is not recognized                 |
 | `UNSUPPORTED_LANGUAGE_PAIR` | 400         | The source→target combination is not supported  |
 | `TEXT_TOO_LONG`             | 400         | Input text exceeds maximum length (2,000 chars) |
@@ -50,6 +52,8 @@ All errors follow a consistent format:
 | `SPEECH_RECOGNITION_FAILED` | Yes         | STT error for a segment; can continue with next |
 | `TRANSLATION_FAILED`        | Yes         | Translation error; transcript still valid       |
 | `SESSION_TIMEOUT`           | No          | Session exceeded maximum duration               |
+| `AUTHENTICATION_REQUIRED`   | No          | No bearer token provided during handshake       |
+| `INVALID_AUTH_TOKEN`        | No          | Handshake token is invalid, expired, or revoked |
 | `PROVIDER_DISCONNECTED`     | No          | Upstream provider connection lost               |
 | `CLIENT_DISCONNECTED`       | No          | Client connection lost (logged server-side)     |
 

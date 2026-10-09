@@ -43,6 +43,55 @@ class AppError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Authentication and authorization errors
+# ---------------------------------------------------------------------------
+
+
+class AuthenticationRequiredError(AppError):
+    """Raised when a protected operation is requested without credentials."""
+
+    def __init__(self):
+        super().__init__(
+            code="AUTHENTICATION_REQUIRED",
+            message="Authentication is required. Include an Authorization: Bearer token.",
+            status_code=401,
+        )
+
+
+class InvalidAuthTokenError(AppError):
+    """Raised when a bearer token is invalid, expired, or malformed."""
+
+    def __init__(self):
+        super().__init__(
+            code="INVALID_AUTH_TOKEN",
+            message="The authentication token is invalid or expired.",
+            status_code=401,
+        )
+
+
+class AuthTokenRevokedError(AppError):
+    """Raised when a bearer token was valid but has been revoked."""
+
+    def __init__(self):
+        super().__init__(
+            code="AUTH_TOKEN_REVOKED",
+            message="The authentication token has been revoked.",
+            status_code=401,
+        )
+
+
+class AuthorizationFailedError(AppError):
+    """Raised when an authenticated user is not allowed to perform an action."""
+
+    def __init__(self):
+        super().__init__(
+            code="AUTHORIZATION_FAILED",
+            message="The authenticated user is not allowed to perform this action.",
+            status_code=403,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Language errors
 # ---------------------------------------------------------------------------
 

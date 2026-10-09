@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Authentication: Google Cloud Identity Platform
     gcp_project_id: str = ""
+    auth_check_revoked: bool = True
 
     # Payments and subscriptions: Cashfree
     cashfree_app_id: str = ""

@@ -11,9 +11,68 @@ Usage in routes:
         ...
 """
 
-from app.core.config import Settings, get_settings
+from typing import Annotated
 
-__all__ = ["Settings", "get_settings"]
+from fastapi import Depends, Header, WebSocket
+
+from app.adapters.gcp_identity import GcpIdentityVerifier
+from app.core.config import Settings, get_settings
+from app.core.exceptions import AuthenticationRequiredError, InvalidAuthTokenError
+from app.domain.entities.authenticated_user import AuthenticatedUser
+from app.ports.authentication import IdentityVerifier
+
+__all__ = [
+    "Settings",
+    "authenticate_websocket",
+    "get_current_user",
+    "get_identity_verifier",
+    "get_settings",
+]
+
+
+def get_identity_verifier(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> IdentityVerifier:
+    """Return the configured identity verifier."""
+    return GcpIdentityVerifier(settings)
+
+
+def extract_bearer_token(authorization: str | None) -> str:
+    """Extract a bearer token from an Authorization header value."""
+    if not authorization:
+        raise AuthenticationRequiredError()
+
+    scheme, separator, token = authorization.partition(" ")
+    if separator != " " or scheme.lower() != "bearer" or not token.strip():
+        raise InvalidAuthTokenError()
+
+    return token.strip()
+
+
+async def get_current_user(
+    verifier: Annotated[IdentityVerifier, Depends(get_identity_verifier)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> AuthenticatedUser:
+    """Verify the request bearer token and return the authenticated user."""
+    token = extract_bearer_token(authorization)
+    return await verifier.verify_token(token)
+
+
+async def authenticate_websocket(
+    websocket: WebSocket,
+    verifier: IdentityVerifier,
+) -> AuthenticatedUser:
+    """Authenticate a WebSocket handshake before accepting the connection."""
+    authorization = websocket.headers.get("authorization")
+    token = websocket.query_params.get("access_token")
+
+    if authorization:
+        token = extract_bearer_token(authorization)
+    elif not token:
+        raise AuthenticationRequiredError()
+
+    return await verifier.verify_token(token)
+
 
 # Future dependencies will be added here:
 #

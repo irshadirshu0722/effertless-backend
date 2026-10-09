@@ -26,6 +26,12 @@ All HTTP requests sent from the client must include:
 - `X-Client-Version: <semantic-version>`
 - `X-Request-Id: <uuid>` (for distributed tracing)
 
+Protected endpoints must also include:
+
+- `Authorization: Bearer <gcp_identity_platform_id_token>`
+
+System endpoints `/health` and `/health/ready` are public.
+
 ---
 
 ## 3. Endpoints
@@ -201,6 +207,10 @@ All `4xx` and `5xx` error responses adhere to this structure:
 
 ### Standard Error Codes
 
+- `AUTHENTICATION_REQUIRED` (401)
+- `INVALID_AUTH_TOKEN` (401)
+- `AUTH_TOKEN_REVOKED` (401)
+- `AUTHORIZATION_FAILED` (403)
 - `VALIDATION_ERROR` (400)
 - `INVALID_LANGUAGE` (400)
 - `UNSUPPORTED_LANGUAGE_PAIR` (400)

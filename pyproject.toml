@@ -39,6 +39,11 @@ asyncpg = ">=0.29.0"
     # Justification: Low-latency Redis caching for frequently read subscription state.
 redis = ">=5.0.0"
 
+    # GCP Identity Platform token verification
+    # Justification: Official Google/Firebase Admin SDK for server-side ID-token
+    # verification, revocation checks, and disabled-user detection.
+firebase-admin = "^7.7.0"
+
 [tool.poetry.group.dev.dependencies]
     # Linter and formatter
     # Justification: Single tool for linting, formatting, and import sorting.
