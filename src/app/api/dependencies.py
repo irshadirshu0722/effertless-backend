@@ -3,31 +3,107 @@
 All injectable dependencies (settings, clients, services) are defined here.
 Route handlers access them via Depends(). This keeps DI wiring in one place
 and out of business logic.
-
-Usage in routes:
-    from app.api.dependencies import get_settings
-    @router.get("/example")
-    async def example(settings: Settings = Depends(get_settings)):
-        ...
 """
 
+from collections.abc import AsyncGenerator
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, Header, WebSocket
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.adapters.cashfree import CashfreeSubscriptionAdapter
 from app.adapters.gcp_identity import GcpIdentityVerifier
+from app.adapters.postgres_subscription import (
+    PostgresPlanRepository,
+    PostgresSubscriptionRepository,
+    PostgresWebhookEventRepository,
+)
+from app.adapters.redis_usage_tracker import RedisUsageTracker
+from app.application.use_case.check_entitlement import CheckEntitlementUseCase
+from app.application.use_case.get_user_subscription import GetUserSubscriptionUseCase
+from app.application.use_case.handle_subscription_webhook import (
+    HandleSubscriptionWebhookUseCase,
+)
+from app.application.use_case.initiate_checkout import InitiateCheckoutUseCase
+from app.application.use_case.list_plans import ListPlansUseCase
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AuthenticationRequiredError, InvalidAuthTokenError
 from app.domain.entities.authenticated_user import AuthenticatedUser
+from app.drivers.database import create_engine, create_session_factory
+from app.drivers.redis import create_redis_client
 from app.ports.authentication import IdentityVerifier
+from app.ports.subscription import (
+    PaymentGateway,
+    PlanRepository,
+    SubscriptionRepository,
+    UsageTracker,
+    WebhookEventRepository,
+)
 
 __all__ = [
     "Settings",
     "authenticate_websocket",
+    "get_check_entitlement_use_case",
     "get_current_user",
+    "get_db_session",
+    "get_handle_webhook_use_case",
     "get_identity_verifier",
+    "get_initiate_checkout_use_case",
+    "get_list_plans_use_case",
+    "get_payment_gateway",
+    "get_plan_repo",
+    "get_redis_client",
     "get_settings",
+    "get_subscription_repo",
+    "get_usage_tracker",
+    "get_user_subscription_use_case",
+    "get_webhook_repo",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Database and Redis Drivers
+# ---------------------------------------------------------------------------
+
+
+@lru_cache
+def _get_engine(database_url: str) -> AsyncEngine:
+    class DummySettings:
+        def __init__(self, url: str):
+            self.database_url = url
+
+    return create_engine(DummySettings(database_url))  # type: ignore[arg-type]
+
+
+async def get_db_session(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AsyncGenerator[AsyncSession, None]:
+    """Yield an async SQLAlchemy database session."""
+    if not settings.database_url:
+        raise ValueError("DATABASE_URL must be configured")
+    engine = _get_engine(settings.database_url)
+    session_factory: async_sessionmaker[AsyncSession] = create_session_factory(engine)
+    async with session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+def get_redis_client(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Redis:
+    """Return configured Redis client."""
+    return create_redis_client(settings)
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
 
 
 def get_identity_verifier(
@@ -74,13 +150,79 @@ async def authenticate_websocket(
     return await verifier.verify_token(token)
 
 
-# Future dependencies will be added here:
-#
-# def get_sarvam_client(settings: Settings = Depends(get_settings)) -> AsyncSarvamAI:
-#     return AsyncSarvamAI(api_subscription_key=settings.sarvam_api_key)
-#
-# def get_speech_provider(client = Depends(get_sarvam_client)) -> SpeechProvider:
-#     return SarvamSpeechProvider(client)
-#
-# def get_translation_provider(client = Depends(get_sarvam_client)) -> TranslationProvider:
-#     return SarvamTranslationProvider(client)
+# ---------------------------------------------------------------------------
+# Subscription Repositories & Adapters
+# ---------------------------------------------------------------------------
+
+
+def get_plan_repo(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PlanRepository:
+    return PostgresPlanRepository(session)
+
+
+def get_subscription_repo(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> SubscriptionRepository:
+    return PostgresSubscriptionRepository(session)
+
+
+def get_webhook_repo(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WebhookEventRepository:
+    return PostgresWebhookEventRepository(session)
+
+
+def get_usage_tracker(
+    redis: Annotated[Redis, Depends(get_redis_client)],
+) -> UsageTracker:
+    return RedisUsageTracker(redis)
+
+
+def get_payment_gateway(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> PaymentGateway:
+    return CashfreeSubscriptionAdapter(settings)
+
+
+# ---------------------------------------------------------------------------
+# Subscription Use Cases
+# ---------------------------------------------------------------------------
+
+
+def get_list_plans_use_case(
+    plan_repo: Annotated[PlanRepository, Depends(get_plan_repo)],
+) -> ListPlansUseCase:
+    return ListPlansUseCase(plan_repo)
+
+
+def get_user_subscription_use_case(
+    sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
+    usage_tracker: Annotated[UsageTracker, Depends(get_usage_tracker)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> GetUserSubscriptionUseCase:
+    return GetUserSubscriptionUseCase(sub_repo, usage_tracker, settings)
+
+
+def get_initiate_checkout_use_case(
+    plan_repo: Annotated[PlanRepository, Depends(get_plan_repo)],
+    gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
+) -> InitiateCheckoutUseCase:
+    return InitiateCheckoutUseCase(plan_repo, gateway)
+
+
+def get_handle_webhook_use_case(
+    gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
+    webhook_repo: Annotated[WebhookEventRepository, Depends(get_webhook_repo)],
+    sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
+    plan_repo: Annotated[PlanRepository, Depends(get_plan_repo)],
+) -> HandleSubscriptionWebhookUseCase:
+    return HandleSubscriptionWebhookUseCase(gateway, webhook_repo, sub_repo, plan_repo)
+
+
+def get_check_entitlement_use_case(
+    sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
+    usage_tracker: Annotated[UsageTracker, Depends(get_usage_tracker)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CheckEntitlementUseCase:
+    return CheckEntitlementUseCase(sub_repo, usage_tracker, settings)

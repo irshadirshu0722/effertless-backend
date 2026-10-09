@@ -72,6 +72,12 @@ pre-commit = ">=3.8.0"
     # from application startup.
 alembic = ">=1.13.0"
 
+    # Integration test containers
+    # Justification: Spin up ephemeral real PostgreSQL and Redis Docker containers
+    # for integration tests verifying database migrations, persistence, and Redis cache.
+testcontainers = {version = ">=4.8.0", extras = ["postgres", "redis"]}
+
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

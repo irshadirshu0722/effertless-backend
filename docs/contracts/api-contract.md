@@ -191,6 +191,118 @@ System endpoints `/health` and `/health/ready` are public.
 
 ---
 
+### 3.6 Subscriptions
+
+#### 3.6.1 List Public Plans
+- **Method**: `GET`
+- **Path**: `/api/v1/subscriptions/plans`
+- **Description**: Returns all currently active subscription plans and pricing.
+
+##### Response `200 OK`
+```json
+{
+  "plans": [
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "code": "lite_monthly",
+      "name": "Lite",
+      "billing_period": "monthly",
+      "actual_price": 499.00,
+      "offer_price": 299.00,
+      "currency": "INR",
+      "max_seconds_per_request": 30,
+      "max_usage_per_day": 50
+    }
+  ]
+}
+```
+
+---
+
+#### 3.6.2 Current User Subscription & Quota
+- **Method**: `GET`
+- **Path**: `/api/v1/subscriptions/me`
+- **Headers**: `Authorization: Bearer <token>`
+- **Description**: Returns user's active subscription tier, limits, and today's usage balance.
+
+##### Response `200 OK`
+```json
+{
+  "status": "active",
+  "plan_name": "Lite",
+  "current_period_end": "2026-11-09T00:00:00Z",
+  "limits": {
+    "max_seconds_per_request": 30,
+    "max_usage_per_day": 50
+  },
+  "usage_today": {
+    "used": 12,
+    "limit": 50,
+    "remaining": 38
+  }
+}
+```
+
+---
+
+#### 3.6.3 Create Checkout Session
+- **Method**: `POST`
+- **Path**: `/api/v1/subscriptions/checkout`
+- **Headers**: `Authorization: Bearer <token>`
+- **Description**: Initiates a Cashfree subscription checkout session.
+
+##### Request Body
+```json
+{
+  "plan_code": "lite_monthly",
+  "return_url": "https://effortless.app/subscription/success"
+}
+```
+
+##### Response `200 OK`
+```json
+{
+  "subscription_id": "sub_cf_12345",
+  "payment_link": "https://payments.cashfree.com/sub/...",
+  "status": "pending"
+}
+```
+
+---
+
+#### 3.6.4 Cashfree Webhook Handler
+- **Method**: `POST`
+- **Path**: `/api/v1/subscriptions/webhook`
+- **Headers**:
+  - `x-webhook-signature: <signature>`
+  - `x-webhook-timestamp: <timestamp>`
+- **Description**: Idempotent processing of Cashfree subscription events.
+
+##### Response `200 OK`
+```json
+{
+  "status": "acknowledged"
+}
+```
+
+---
+
+#### 3.6.5 Cancel Subscription
+- **Method**: `POST`
+- **Path**: `/api/v1/subscriptions/cancel`
+- **Headers**: `Authorization: Bearer <token>`
+- **Description**: Cancels auto-renewal for the user's active subscription.
+
+##### Response `200 OK`
+```json
+{
+  "status": "cancelled",
+  "current_period_end": "2026-11-09T00:00:00Z"
+}
+```
+
+---
+
 ## 4. Standard Error Schema
 
 All `4xx` and `5xx` error responses adhere to this structure:
@@ -214,6 +326,12 @@ All `4xx` and `5xx` error responses adhere to this structure:
 - `VALIDATION_ERROR` (400)
 - `INVALID_LANGUAGE` (400)
 - `UNSUPPORTED_LANGUAGE_PAIR` (400)
+- `AUDIO_EXCEEDS_TIER_LIMIT` (400)
+- `SUBSCRIPTION_REQUIRED` (402)
+- `DAILY_QUOTA_EXCEEDED` (429)
 - `RATE_LIMIT_EXCEEDED` (429)
+- `PLAN_NOT_FOUND` (404)
+- `INVALID_WEBHOOK_SIGNATURE` (401)
 - `INTERNAL_SERVER_ERROR` (500)
 - `PROVIDER_UNAVAILABLE` (503)
+

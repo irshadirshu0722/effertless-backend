@@ -9,7 +9,11 @@ The health check endpoint is NOT versioned and is registered separately.
 
 from fastapi import APIRouter
 
+from app.api.routes import subscriptions
+
 router = APIRouter()
+
+router.include_router(subscriptions.router)
 
 # Future route registration:
 # from app.api.routes import languages, translation, speech, realtime

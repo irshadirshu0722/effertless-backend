@@ -92,6 +92,82 @@ class AuthorizationFailedError(AppError):
 
 
 # ---------------------------------------------------------------------------
+# Subscription and usage quota errors
+# ---------------------------------------------------------------------------
+
+
+class AudioExceedsTierLimitError(AppError):
+    """Raised when requested audio duration exceeds the plan tier limit."""
+
+    def __init__(self, requested_seconds: float, max_seconds: int):
+        super().__init__(
+            code="AUDIO_EXCEEDS_TIER_LIMIT",
+            message=(
+                f"Audio duration of {requested_seconds:.1f}s exceeds your tier limit of {max_seconds}s. "
+                "Upgrade your plan for longer recordings."
+            ),
+            status_code=400,
+        )
+
+
+class DailyQuotaExceededError(AppError):
+    """Raised when the user has exhausted their daily request allowance."""
+
+    def __init__(self, daily_limit: int):
+        super().__init__(
+            code="DAILY_QUOTA_EXCEEDED",
+            message=f"Daily request quota of {daily_limit} reached. Quota resets at midnight UTC.",
+            status_code=429,
+        )
+
+
+class SubscriptionRequiredError(AppError):
+    """Raised when a subscription or active trial is required to perform an action."""
+
+    def __init__(
+        self, message: str = "Active subscription or trial required to access this feature."
+    ):
+        super().__init__(
+            code="SUBSCRIPTION_REQUIRED",
+            message=message,
+            status_code=402,
+        )
+
+
+class PlanNotFoundError(AppError):
+    """Raised when the requested subscription plan does not exist."""
+
+    def __init__(self, identifier: str):
+        super().__init__(
+            code="PLAN_NOT_FOUND",
+            message=f"Subscription plan '{identifier}' not found or inactive.",
+            status_code=404,
+        )
+
+
+class InvalidWebhookSignatureError(AppError):
+    """Raised when an incoming webhook signature is invalid or tampered with."""
+
+    def __init__(self):
+        super().__init__(
+            code="INVALID_WEBHOOK_SIGNATURE",
+            message="Invalid webhook signature.",
+            status_code=401,
+        )
+
+
+class SubscriptionPaymentError(AppError):
+    """Raised when payment gateway rejects a subscription checkout operation."""
+
+    def __init__(self, detail: str = "Payment gateway error."):
+        super().__init__(
+            code="PROVIDER_UNAVAILABLE",
+            message=f"Payment provider error: {detail}",
+            status_code=502,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Language errors
 # ---------------------------------------------------------------------------
 
