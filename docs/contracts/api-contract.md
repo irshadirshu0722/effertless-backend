@@ -46,7 +46,39 @@ All HTTP requests sent from the client must include:
 
 ---
 
-### 3.2 Text Translation
+### 3.2 Readiness Check
+
+- **Method**: `GET`
+- **Path**: `/health/ready`
+- **Description**: Verifies configured runtime dependencies needed to serve traffic.
+
+#### Response `200 OK`
+
+```json
+{
+  "status": "ready",
+  "dependencies": {
+    "postgres": "connected",
+    "redis": "connected"
+  }
+}
+```
+
+#### Response `503 Service Unavailable`
+
+```json
+{
+  "status": "degraded",
+  "dependencies": {
+    "postgres": "unreachable",
+    "redis": "connected"
+  }
+}
+```
+
+---
+
+### 3.3 Text Translation
 
 - **Method**: `POST`
 - **Path**: `/api/v1/translation`
@@ -81,7 +113,7 @@ All HTTP requests sent from the client must include:
 
 ---
 
-### 3.3 Speech Translation (Audio Batch)
+### 3.4 Speech Translation (Audio Batch)
 
 - **Method**: `POST`
 - **Path**: `/api/v1/speech/translate`
@@ -109,7 +141,7 @@ All HTTP requests sent from the client must include:
 
 ---
 
-### 3.4 Realtime Voice Streaming (WebSocket)
+### 3.5 Realtime Voice Streaming (WebSocket)
 
 - **Protocol**: `WebSocket (WSS)`
 - **Path**: `/api/v1/realtime/translate`
@@ -170,7 +202,8 @@ All `4xx` and `5xx` error responses adhere to this structure:
 ### Standard Error Codes
 
 - `VALIDATION_ERROR` (400)
-- `UNSUPPORTED_LANGUAGE` (400)
+- `INVALID_LANGUAGE` (400)
+- `UNSUPPORTED_LANGUAGE_PAIR` (400)
 - `RATE_LIMIT_EXCEEDED` (429)
 - `INTERNAL_SERVER_ERROR` (500)
 - `PROVIDER_UNAVAILABLE` (503)

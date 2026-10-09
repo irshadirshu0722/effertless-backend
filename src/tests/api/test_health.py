@@ -31,3 +31,14 @@ async def test_readiness_check(async_client: AsyncClient):
     data = response.json()
     assert data["status"] in ("ready", "degraded")
     assert set(data["dependencies"]) == {"postgres", "redis"}
+
+
+@pytest.mark.asyncio
+async def test_openapi_includes_system_routes(async_client: AsyncClient):
+    """OpenAPI schema includes the foundation health endpoints."""
+    response = await async_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/health" in paths
+    assert "/health/ready" in paths

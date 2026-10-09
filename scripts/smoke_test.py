@@ -8,7 +8,6 @@ import asyncpg
 import httpx
 from redis.asyncio import Redis
 
-
 BASE_URL = os.getenv("SMOKE_BASE_URL", "http://localhost:8000")
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

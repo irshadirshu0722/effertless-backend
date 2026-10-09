@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     """Typed application settings loaded from environment variables."""
 
     # Application
-    app_name: str = "typeless-api"
+    app_name: str = "effortless-api"
     app_env: str = "development"
     app_debug: bool = False
     log_level: str = "INFO"
