@@ -10,3 +10,6 @@ class IdentityVerifier(Protocol):
 
     async def verify_token(self, token: str) -> AuthenticatedUser:
         """Validate a bearer token and return the authenticated user."""
+
+    async def sign_in_with_password(self, email: str, password: str) -> str:
+        """Authenticate user credentials and return an external identity token."""

@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 import firebase_admin
+import httpx
 from firebase_admin import App, auth
 
 from app.core.config import Settings
@@ -23,10 +24,12 @@ class GcpIdentityVerifier:
         *,
         app: App | None = None,
         verify_token: VerifyToken | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
         self._app = app
         self._verify_token = verify_token or self._verify_with_sdk
+        self._client = client
 
     async def verify_token(self, token: str) -> AuthenticatedUser:
         if not token:
@@ -55,6 +58,64 @@ class GcpIdentityVerifier:
             )
             raise InvalidAuthTokenError() from error
         return self._to_authenticated_user(decoded_token)
+
+    async def sign_in_with_password(self, email: str, password: str) -> str:
+        """Authenticate user credentials with GCP Identity Platform and return an ID token."""
+        if not email or not password:
+            raise InvalidAuthTokenError()
+
+        api_key = self._settings.gcp_identity_web_api_key
+        if not api_key:
+            from main import request_logger
+
+            request_logger.warning("GCP Identity Web API key is not configured.")
+            raise InvalidAuthTokenError()
+
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
+        payload = {
+            "email": email,
+            "password": password,
+            "returnSecureToken": True,
+        }
+
+        try:
+            if self._client is not None:
+                response = await self._client.post(
+                    url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=10.0,
+                )
+            else:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+        except httpx.RequestError as exc:
+            from main import request_logger
+
+            request_logger.warning("GCP Identity sign-in network error: %s", type(exc).__name__)
+            raise InvalidAuthTokenError() from exc
+
+        if response.status_code != 200:
+            from main import request_logger
+
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", "Unknown error")
+            except Exception:
+                error_msg = response.text
+            request_logger.warning("GCP Identity sign-in failed: %s", error_msg)
+            raise InvalidAuthTokenError()
+
+        data = response.json()
+        id_token = data.get("idToken")
+        if not id_token:
+            raise InvalidAuthTokenError()
+
+        return str(id_token)
 
     def _firebase_app(self) -> App:
         if self._app is not None:

@@ -103,3 +103,96 @@ async def test_gcp_identity_verifier_maps_invalid_tokens(error: Exception) -> No
 
     with pytest.raises(InvalidAuthTokenError):
         await verifier.verify_token("token-1")
+
+
+@pytest.mark.asyncio
+async def test_gcp_identity_sign_in_with_password_success() -> None:
+    import json
+
+    import httpx
+
+    captured_requests: list[httpx.Request] = []
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "idToken": "mocked-id-token-123",
+                "localId": "mocked-uid-456",
+                "expiresIn": "3600",
+            },
+        )
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    verifier = GcpIdentityVerifier(
+        Settings(gcp_identity_web_api_key="test-api-key"),
+        client=mock_client,
+    )
+
+    token = await verifier.sign_in_with_password("test@example.com", "secretpass")
+    assert token == "mocked-id-token-123"
+    assert len(captured_requests) == 1
+    assert "key=test-api-key" in str(captured_requests[0].url)
+    body = json.loads(captured_requests[0].content)
+    assert body["email"] == "test@example.com"
+    assert body["password"] == "secretpass"
+    assert body["returnSecureToken"] is True
+
+
+@pytest.mark.asyncio
+async def test_gcp_identity_sign_in_missing_api_key() -> None:
+    verifier = GcpIdentityVerifier(Settings(gcp_identity_web_api_key=""))
+    with pytest.raises(InvalidAuthTokenError):
+        await verifier.sign_in_with_password("test@example.com", "secretpass")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("email", "password"),
+    [
+        ("", "secretpass"),
+        ("test@example.com", ""),
+    ],
+)
+async def test_gcp_identity_sign_in_empty_credentials(email: str, password: str) -> None:
+    verifier = GcpIdentityVerifier(Settings(gcp_identity_web_api_key="test-key"))
+    with pytest.raises(InvalidAuthTokenError):
+        await verifier.sign_in_with_password(email, password)
+
+
+@pytest.mark.asyncio
+async def test_gcp_identity_sign_in_error_response() -> None:
+    import httpx
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"code": 400, "message": "INVALID_PASSWORD"}},
+        )
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    verifier = GcpIdentityVerifier(
+        Settings(gcp_identity_web_api_key="test-api-key"),
+        client=mock_client,
+    )
+
+    with pytest.raises(InvalidAuthTokenError):
+        await verifier.sign_in_with_password("test@example.com", "wrongpass")
+
+
+@pytest.mark.asyncio
+async def test_gcp_identity_sign_in_network_error() -> None:
+    import httpx
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Network down")
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    verifier = GcpIdentityVerifier(
+        Settings(gcp_identity_web_api_key="test-api-key"),
+        client=mock_client,
+    )
+
+    with pytest.raises(InvalidAuthTokenError):
+        await verifier.sign_in_with_password("test@example.com", "secretpass")

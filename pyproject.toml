@@ -44,6 +44,15 @@ redis = ">=5.0.0"
     # verification, revocation checks, and disabled-user detection.
 firebase-admin = "^7.7.0"
 
+    # Admin dashboard interface
+    # Justification: Out-of-the-box administrative panel for SQLAlchemy models and views.
+sqladmin = ">=0.20.0"
+itsdangerous = ">=2.1.0"
+
+    # Async HTTP client
+    # Justification: Async HTTP client for external integrations (Cashfree gateway, GCP Identity Platform).
+httpx = ">=0.27.0"
+
 [tool.poetry.group.dev.dependencies]
     # Linter and formatter
     # Justification: Single tool for linting, formatting, and import sorting.
@@ -57,11 +66,6 @@ pytest = ">=8.0.0"
     # Async test support
     # Justification: Required for testing async FastAPI handlers and use cases.
 pytest-asyncio = ">=0.24.0"
-
-    # HTTP test client
-    # Justification: Async HTTP client used by FastAPI's test utilities.
-    # Required for httpx.AsyncClient in API tests.
-httpx = ">=0.27.0"
 
     # Git hook runner for local quality checks
     # Justification: Runs the same Ruff checks before commits across developer machines.

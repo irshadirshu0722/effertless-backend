@@ -167,21 +167,57 @@ def test_settings(
 
 
 class TestIdentityVerifier(IdentityVerifier):
-    """Verifier for integration tests allowing custom user IDs via token."""
+    """Verifier for integration tests allowing custom user IDs and roles via token."""
 
     async def verify_token(self, token: str) -> AuthenticatedUser:
+        if token.startswith("admin:"):
+            user_id = token.split("admin:", 1)[1]
+            return AuthenticatedUser(
+                user_id=user_id,
+                email=f"{user_id}@admin.example.com",
+                claims={"role": "admin"},
+            )
+        if token == "admin-token":
+            return AuthenticatedUser(
+                user_id="admin-default",
+                email="admin@example.com",
+                claims={"role": "admin"},
+            )
         if token.startswith("user:"):
             user_id = token.split("user:", 1)[1]
-            return AuthenticatedUser(user_id=user_id, email=f"{user_id}@example.com")
+            return AuthenticatedUser(
+                user_id=user_id,
+                email=f"{user_id}@example.com",
+                claims={"role": "user"},
+            )
         if token == "valid-token":
-            return AuthenticatedUser(user_id="user-default", email="default@example.com")
+            return AuthenticatedUser(
+                user_id="user-default",
+                email="default@example.com",
+                claims={},
+            )
+        raise InvalidAuthTokenError()
+
+    async def sign_in_with_password(self, email: str, password: str) -> str:
+        if email in ("admin@example.com", "admin") and password in (
+            "admin123",
+            "password",
+            "admin:superadmin",
+        ):
+            return "admin:superadmin"
+        if "admin" in email or "admin" in password:
+            return "admin:admin-1"
+        if "norole" in email or "norole" in password:
+            return "valid-token"
+        if "user" in email or "user" in password:
+            return "user:user-1"
         raise InvalidAuthTokenError()
 
 
 @pytest.fixture
 def integration_app(test_settings, postgres_url, redis_url, init_db):
     """FastAPI application wired to real testcontainers."""
-    app = create_app()
+    app = create_app(test_settings, verifier=TestIdentityVerifier())
     app.dependency_overrides[get_settings] = lambda: test_settings
 
     engine = create_async_engine(postgres_url)

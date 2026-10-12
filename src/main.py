@@ -13,10 +13,14 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 
+from app.adapters.gcp_identity import GcpIdentityVerifier
+from app.admin.setup import setup_admin
 from app.api.routes import health, v1
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
+from app.drivers.database import create_engine
+from app.ports.authentication import IdentityVerifier
 
 request_logger = logging.getLogger("app.requests")
 
@@ -38,13 +42,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Shutting down %s", settings.app_name)
 
 
-def create_app() -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    verifier: IdentityVerifier | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Returns:
         Configured FastAPI instance with routes and error handlers registered.
     """
-    settings = get_settings()
+    if settings is None:
+        settings = get_settings()
 
     app = FastAPI(
         title=settings.app_name,
@@ -95,6 +103,12 @@ def create_app() -> FastAPI:
 
     # API v1 routes
     app.include_router(v1.router, prefix="/api/v1")
+
+    # SQLAdmin dashboard
+    if settings.database_url:
+        engine = create_engine(settings)
+        identity_verifier = verifier or GcpIdentityVerifier(settings)
+        setup_admin(app=app, engine=engine, verifier=identity_verifier)
 
     return app
 
