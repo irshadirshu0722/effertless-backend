@@ -47,8 +47,13 @@ class GcpIdentityVerifier:
             auth.UserDisabledError,
             ValueError,
         ) as error:
-            raise InvalidAuthTokenError() from error
+            from main import request_logger
 
+            request_logger.warning(
+                "Firebase token verification failed: %s",
+                type(error).__name__,
+            )
+            raise InvalidAuthTokenError() from error
         return self._to_authenticated_user(decoded_token)
 
     def _firebase_app(self) -> App:

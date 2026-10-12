@@ -22,7 +22,7 @@ down: ## Stop the backend stack
 
 rebuild: ## Rebuild and restart the backend stack
 	docker compose -f $(COMPOSE_FILE) down
-	docker compose -f $(COMPOSE_FILE) up -d --build
+	docker compose -f $(COMPOSE_FILE) up --build
 
 logs: ## Follow backend stack logs
 	docker compose -f $(COMPOSE_FILE) logs -f

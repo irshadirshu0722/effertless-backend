@@ -1,5 +1,7 @@
 """Tests for system health check endpoints."""
 
+import logging
+
 import pytest
 from httpx import AsyncClient
 
@@ -21,6 +23,25 @@ async def test_request_id_is_propagated(async_client: AsyncClient):
 
     assert response.status_code == 200
     assert response.headers["X-Request-Id"] == request_id
+
+
+@pytest.mark.asyncio
+async def test_successful_request_is_logged(async_client: AsyncClient, caplog):
+    request_id = "logged-request-id"
+
+    with caplog.at_level(logging.INFO, logger="app.requests"):
+        response = await async_client.get("/health", headers={"X-Request-Id": request_id})
+
+    assert response.status_code == 200
+    assert any(
+        record.name == "app.requests"
+        and "Request completed" in record.message
+        and "method=GET" in record.message
+        and "path=/health" in record.message
+        and "status_code=200" in record.message
+        and getattr(record, "request_id", None) == request_id
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

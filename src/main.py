@@ -5,8 +5,10 @@ All route registration, middleware setup, and error handler configuration
 happens here. No business logic should exist in this file.
 """
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -16,14 +18,14 @@ from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 
+request_logger = logging.getLogger("app.requests")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan handler for startup and shutdown events."""
     settings = get_settings()
     setup_logging(settings.log_level)
-
-    import logging
 
     logger = logging.getLogger(__name__)
     logger.info(
@@ -57,8 +59,32 @@ def create_app() -> FastAPI:
     async def request_id_middleware(request: Request, call_next):
         request_id = request.headers.get("X-Request-Id") or str(uuid4())
         request.state.request_id = request_id
-        response = await call_next(request)
+        started_at = perf_counter()
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            print("Enter")
+            duration_ms = (perf_counter() - started_at) * 1000
+            request_logger.exception(
+                "Request failed method=%s path=%s duration_ms=%.2f",
+                request.method,
+                request.url.path,
+                duration_ms,
+                extra={"request_id": request_id},
+            )
+            raise
+
+        duration_ms = (perf_counter() - started_at) * 1000
         response.headers["X-Request-Id"] = request_id
+        request_logger.info(
+            "Request completed method=%s path=%s status_code=%s duration_ms=%.2f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            extra={"request_id": request_id},
+        )
         return response
 
     # Register exception handlers

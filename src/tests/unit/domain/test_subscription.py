@@ -51,6 +51,39 @@ def test_plan_validation_rejects_empty_code_or_negative_values() -> None:
             max_usage_per_day=50,
         )
 
+    with pytest.raises(ValueError, match="Invalid billing period"):
+        Plan(
+            code="lite",
+            name="Lite",
+            billing_period="quarterly",
+            actual_price=Decimal("100"),
+            offer_price=Decimal("50"),
+            max_seconds_per_request=30,
+            max_usage_per_day=50,
+        )
+
+
+def test_billing_period_enum_parsing_and_durations() -> None:
+    assert BillingPeriod.from_str("daily") == BillingPeriod.DAILY
+    assert BillingPeriod.from_str("day") == BillingPeriod.DAILY
+    assert BillingPeriod.DAILY.duration_days == 1
+
+    assert BillingPeriod.from_str("weekly") == BillingPeriod.WEEKLY
+    assert BillingPeriod.from_str("week") == BillingPeriod.WEEKLY
+    assert BillingPeriod.WEEKLY.duration_days == 7
+
+    assert BillingPeriod.from_str("monthly") == BillingPeriod.MONTHLY
+    assert BillingPeriod.from_str("month") == BillingPeriod.MONTHLY
+    assert BillingPeriod.from_str("MONTHLY") == BillingPeriod.MONTHLY
+    assert BillingPeriod.MONTHLY.duration_days == 30
+
+    assert BillingPeriod.from_str("yearly") == BillingPeriod.YEARLY
+    assert BillingPeriod.from_str("year") == BillingPeriod.YEARLY
+    assert BillingPeriod.YEARLY.duration_days == 365
+
+    with pytest.raises(ValueError, match="Invalid billing period 'biweekly'"):
+        BillingPeriod.from_str("biweekly")
+
 
 def test_plan_snapshot_and_limits() -> None:
     snapshot = PlanSnapshot(

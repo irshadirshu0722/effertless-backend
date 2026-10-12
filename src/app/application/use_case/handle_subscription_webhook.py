@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.exceptions import InvalidWebhookSignatureError, PlanNotFoundError
+from app.domain.entities.plan import BillingPeriod
 from app.domain.entities.subscription import Subscription, SubscriptionStatus
 from app.domain.value_objects.plan_snapshot import PlanSnapshot
 from app.ports.subscription import (
@@ -84,9 +85,9 @@ class HandleSubscriptionWebhookUseCase:
                 currency=plan.currency,
             )
 
-            # Duration calculation (30 days default for monthly, 7 for weekly)
-            duration_days = 7 if plan.billing_period.lower() == "weekly" else 30
-            period_end = now + timedelta(days=duration_days)
+            # Duration calculation based on billing period
+            period = BillingPeriod.from_str(plan.billing_period)
+            period_end = now + timedelta(days=period.duration_days)
 
             # Existing subscription or new
             existing_sub = await self._subscription_repo.get_by_external_id(sub_id)

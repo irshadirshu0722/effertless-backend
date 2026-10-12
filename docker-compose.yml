@@ -1,22 +1,22 @@
-name: effortless-backend
+name: ${COMPOSE_PROJECT_NAME}
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: effortless-backend-postgres
+    container_name: ${POSTGRES_CONTAINER_NAME}
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-effortless}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-effortless}",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
         ]
       interval: 5s
       timeout: 5s
@@ -27,9 +27,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: effortless-backend-redis
+    container_name: ${REDIS_CONTAINER_NAME}
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -45,26 +45,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: effortless-backend-api
+    container_name: ${BACKEND_CONTAINER_NAME}
+    env_file:
+      - .env
     environment:
-      APP_ENV: ${APP_ENV:-development}
-      APP_DEBUG: ${APP_DEBUG:-true}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/effortless}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-      CASHFREE_APP_ID: ${CASHFREE_APP_ID:-}
-      CASHFREE_SECRET_KEY: ${CASHFREE_SECRET_KEY:-}
-      CASHFREE_ENVIRONMENT: ${CASHFREE_ENVIRONMENT:-sandbox}
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+      POSTGRES_HOST: ${DOCKER_POSTGRES_HOST}
+      POSTGRES_PORT: ${DOCKER_POSTGRES_PORT}
+      REDIS_URL: ${DOCKER_REDIS_URL}
+      REDIS0_HOST: ${DOCKER_REDIS_HOST}
+      REDIS_PORT: ${DOCKER_REDIS_PORT}
+
+      # Google Cloud Identity Platform
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      AUTH_CHECK_REVOKED: ${AUTH_CHECK_REVOKED:-true}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-service-account.json
+
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT}:8000"
     volumes:
       - .:/app
+      - ./gcp-service-account.json:/run/secrets/gcp-service-account.json:ro
     command:
       [
         "uvicorn",
@@ -75,20 +76,22 @@ services:
         "0.0.0.0",
         "--port",
         "8000",
+        "--reload-dir",
+        "src",
         "--reload",
       ]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # healthcheck:
+    #   test:
+    #     [
+    #       "CMD",
+    #       "python",
+    #       "-c",
+    #       "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+    #     ]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,10 +102,10 @@ services:
 
 networks:
   backend-network:
-    name: effortless-backend-network
+    name: ${BACKEND_NETWORK_NAME}
 
 volumes:
   postgres_data:
-    name: effortless_backend_postgres_data
+    name: ${POSTGRES_VOLUME_NAME}
   redis_data:
-    name: effortless_backend_redis_data
+    name: ${REDIS_VOLUME_NAME}

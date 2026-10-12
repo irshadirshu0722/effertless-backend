@@ -4,13 +4,31 @@ import base64
 import hashlib
 import hmac
 import uuid
+from enum import StrEnum
 
 import httpx
 
 from app.core.config import Settings
 from app.core.exceptions import SubscriptionPaymentError
-from app.domain.entities.plan import Plan
+from app.domain.entities.plan import BillingPeriod, Plan
 from app.ports.subscription import PaymentGateway
+
+
+class CashfreePlanIntervalType(StrEnum):
+    """Supported interval types for recurring plans in Cashfree Subscriptions API."""
+
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+    YEAR = "YEAR"
+
+
+_BILLING_PERIOD_TO_CASHFREE_INTERVAL: dict[BillingPeriod, CashfreePlanIntervalType] = {
+    BillingPeriod.DAILY: CashfreePlanIntervalType.DAY,
+    BillingPeriod.WEEKLY: CashfreePlanIntervalType.WEEK,
+    BillingPeriod.MONTHLY: CashfreePlanIntervalType.MONTH,
+    BillingPeriod.YEARLY: CashfreePlanIntervalType.YEAR,
+}
 
 
 class CashfreeSubscriptionAdapter(PaymentGateway):
@@ -65,6 +83,9 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
             "x-api-version": "2023-08-01",
             "Content-Type": "application/json",
         }
+        period = BillingPeriod.from_str(plan.billing_period)
+        plan_interval_type = _BILLING_PERIOD_TO_CASHFREE_INTERVAL[period].value
+
         payload = {
             "subscription_id": subscription_id,
             "customer_details": {
@@ -78,7 +99,7 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
                 "plan_type": "PERIODIC",
                 "plan_currency": plan.currency,
                 "plan_amount": float(plan.offer_price),
-                "plan_interval_type": plan.billing_period.upper(),
+                "plan_interval_type": plan_interval_type,
                 "plan_intervals": 1,
             },
             "subscription_meta": {
@@ -94,7 +115,9 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
         ):
             return subscription_id, f"https://mock.cashfree.com/checkout/{subscription_id}"
 
-        async with self._client or httpx.AsyncClient() as client:
+        client = self._client or httpx.AsyncClient()
+        should_close = self._client is None
+        try:
             try:
                 response = await client.post(
                     f"{self._base_url}/subscriptions",
@@ -119,6 +142,9 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
                 or f"https://payments.cashfree.com/sub/{subscription_id}"
             )
             return subscription_id, payment_link
+        finally:
+            if should_close:
+                await client.aclose()
 
     async def cancel_subscription(self, external_subscription_id: str) -> bool:
         """Cancel subscription on Cashfree."""
@@ -134,7 +160,9 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
             "x-client-secret": self._settings.cashfree_secret_key,
             "x-api-version": "2023-08-01",
         }
-        async with self._client or httpx.AsyncClient() as client:
+        client = self._client or httpx.AsyncClient()
+        should_close = self._client is None
+        try:
             try:
                 response = await client.post(
                     f"{self._base_url}/subscriptions/{external_subscription_id}/cancel",
@@ -144,3 +172,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
                 return response.status_code < 400
             except httpx.RequestError:
                 return False
+        finally:
+            if should_close:
+                await client.aclose()

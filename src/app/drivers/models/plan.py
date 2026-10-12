@@ -59,7 +59,7 @@ class PlanModel(Base):
             id=plan.id,
             code=plan.code,
             name=plan.name,
-            billing_period=plan.billing_period,
+            billing_period=str(plan.billing_period),
             actual_price=plan.actual_price,
             offer_price=plan.offer_price,
             currency=plan.currency,

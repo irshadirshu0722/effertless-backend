@@ -104,6 +104,7 @@ async def create_checkout(
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     use_case: Annotated[InitiateCheckoutUseCase, Depends(get_initiate_checkout_use_case)],
 ) -> CheckoutResponse:
+    print(current_user)
     result = await use_case.execute(
         user=current_user,
         plan_code=request.plan_code,

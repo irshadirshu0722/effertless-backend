@@ -16,6 +16,7 @@ Desktop.ini
 *.pfx
 *.keystore
 *.jks
+gcp-service-account.json
 
 # Python
 __pycache__/
