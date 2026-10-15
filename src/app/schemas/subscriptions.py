@@ -61,10 +61,10 @@ class CheckoutRequest(BaseModel):
 
 
 class CheckoutResponse(BaseModel):
-    """Checkout session response containing payment gateway link."""
+    """Checkout session response containing gateway identifiers."""
 
     subscription_id: str
-    payment_link: str
+    checkout_session_id: str
     status: str = "pending"
 
 

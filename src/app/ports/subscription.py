@@ -1,6 +1,7 @@
 """Subscription, payment, and quota tracking ports."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -30,6 +31,9 @@ class SubscriptionRepository(Protocol):
     async def get_active_by_user_id(self, user_id: str) -> Subscription | None:
         """Fetch the most recent active or trialing subscription for a user."""
 
+    async def get_latest_by_user_id(self, user_id: str) -> Subscription | None:
+        """Fetch the most recent subscription for a user regardless of status."""
+
     async def get_by_external_id(self, external_id: str) -> Subscription | None:
         """Fetch subscription by provider external subscription ID."""
 
@@ -50,14 +54,21 @@ class UsageTracker(Protocol):
 class PaymentGateway(Protocol):
     """External payment gateway abstraction (e.g. Cashfree)."""
 
+    async def create_plan(self, plan: Plan) -> bool:
+        """Create a subscription plan with the payment provider."""
+
+    async def delete_plan(self, plan_code: str) -> bool:
+        """Delete a subscription plan from the payment provider."""
+
     async def create_checkout_session(
         self,
         user_id: str,
         user_email: str | None,
         plan: Plan,
         return_url: str,
+        first_charge_time: datetime | None = None,
     ) -> tuple[str, str]:
-        """Create a subscription session. Returns (external_subscription_id, payment_link)."""
+        """Create a subscription session. Returns (external_subscription_id, checkout_session_id)."""
 
     async def cancel_subscription(self, external_subscription_id: str) -> bool:
         """Request subscription cancellation with provider."""

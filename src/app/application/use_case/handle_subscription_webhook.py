@@ -1,12 +1,14 @@
-"""Use case for processing Cashfree subscription webhook events idempotently."""
+"""Process Cashfree subscription status-change webhooks."""
 
-from datetime import UTC, datetime, timedelta
+import logging
+from datetime import UTC, datetime
 from typing import Any
 
-from app.core.exceptions import InvalidWebhookSignatureError, PlanNotFoundError
-from app.domain.entities.plan import BillingPeriod
-from app.domain.entities.subscription import Subscription, SubscriptionStatus
-from app.domain.value_objects.plan_snapshot import PlanSnapshot
+from app.core.exceptions import InvalidWebhookSignatureError
+from app.domain.entities.subscription import (
+    Subscription,
+    SubscriptionStatus,
+)
 from app.ports.subscription import (
     PaymentGateway,
     PlanRepository,
@@ -14,9 +16,11 @@ from app.ports.subscription import (
     WebhookEventRepository,
 )
 
+request_logger = logging.getLogger("app.requests")
+
 
 class HandleSubscriptionWebhookUseCase:
-    """Processes subscription lifecycle webhooks idempotently."""
+    """Process Cashfree subscription status changes idempotently."""
 
     def __init__(
         self,
@@ -30,6 +34,338 @@ class HandleSubscriptionWebhookUseCase:
         self._subscription_repo = subscription_repo
         self._plan_repo = plan_repo
 
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _extract_data(
+        event_data: dict[str, Any],
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        event_type = str(
+            event_data.get("type")
+            or event_data.get("event")
+            or event_data.get("event_type")
+            or "UNKNOWN"
+        ).upper()
+
+        data = event_data.get("data") or {}
+        if not isinstance(data, dict):
+            raise ValueError("Invalid Cashfree webhook data")
+
+        subscription_details = data.get("subscription_details") or {}
+        if not isinstance(subscription_details, dict):
+            subscription_details = {}
+
+        customer_details = data.get("customer_details") or {}
+        if not isinstance(customer_details, dict):
+            customer_details = {}
+
+        plan_details = data.get("plan_details") or {}
+        if not isinstance(plan_details, dict):
+            plan_details = {}
+
+        normalized_data = {
+            **data,
+            **{key: value for key, value in subscription_details.items() if value is not None},
+            "customer_details": customer_details,
+            "plan_details": plan_details,
+        }
+
+        return event_type, normalized_data, subscription_details
+
+    async def _find_subscription(
+        self,
+        subscription_id: str,
+        cf_subscription_id: str,
+    ) -> Subscription | None:
+        subscription = None
+
+        if subscription_id:
+            subscription = await self._subscription_repo.get_by_external_id(subscription_id)
+
+        if subscription is None and cf_subscription_id:
+            subscription = await self._subscription_repo.get_by_external_id(cf_subscription_id)
+
+        return subscription
+
+    async def _get_previous_subscription(
+        self,
+        incoming: Subscription,
+    ) -> Subscription | None:
+        """Find the previous eligible subscription, excluding incoming."""
+
+        current = await self._subscription_repo.get_active_by_user_id(incoming.user_id)
+
+        if current is None:
+            return None
+
+        # Never compare the incoming subscription with itself.
+        if current.id == incoming.id:
+            return None
+
+        if current.external_subscription_id == incoming.external_subscription_id:
+            return None
+
+        return current
+
+    async def _save_status(
+        self,
+        subscription: Subscription,
+        status: SubscriptionStatus,
+        now: datetime,
+    ) -> Subscription:
+        """Persist status while retaining the billing dates."""
+
+        if status == SubscriptionStatus.ACTIVE:
+            cancelled_at = None
+        elif status in {
+            SubscriptionStatus.CANCELLED,
+            SubscriptionStatus.EXPIRED,
+        }:
+            cancelled_at = subscription.cancelled_at or now
+        else:
+            cancelled_at = subscription.cancelled_at
+
+        updated = Subscription(
+            id=subscription.id,
+            user_id=subscription.user_id,
+            plan_id=subscription.plan_id,
+            status=status,
+            provider=subscription.provider,
+            external_subscription_id=(subscription.external_subscription_id),
+            external_customer_id=subscription.external_customer_id,
+            current_period_start=subscription.current_period_start,
+            current_period_end=subscription.current_period_end,
+            cancelled_at=cancelled_at,
+            snapshot=subscription.snapshot,
+            created_at=subscription.created_at,
+            updated_at=now,
+        )
+
+        await self._subscription_repo.save(updated)
+
+        request_logger.info(
+            "Subscription status updated: user_id=%s subscription_id=%s status=%s",
+            updated.user_id,
+            updated.external_subscription_id,
+            updated.status,
+        )
+
+        return updated
+
+    async def _cancel_previous_subscription(
+        self,
+        current: Subscription,
+        now: datetime,
+    ) -> None:
+        """Cancel a live previous subscription in Cashfree and the DB.
+
+        A CANCELLED subscription whose period has already ended is
+        historical and must not be cancelled again.
+        """
+
+        if current.status == SubscriptionStatus.CANCELLED:
+            request_logger.info(
+                "Previous subscription is already cancelled: subscription_id=%s",
+                current.external_subscription_id,
+            )
+            return
+
+        if current.status not in {
+            SubscriptionStatus.ACTIVE,
+            SubscriptionStatus.TRIALING,
+        }:
+            raise ValueError(f"Cannot replace a previous subscription with status {current.status}")
+
+        # Cancel at the provider first. If this fails, do not change
+        # the local DB status.
+        if current.external_subscription_id:
+            await self._payment_gateway.cancel_subscription(current.external_subscription_id)
+
+        # Both upgrades and downgrades mark the previous subscription
+        # CANCELLED. Its existing billing dates remain unchanged.
+        await self._save_status(
+            current,
+            SubscriptionStatus.CANCELLED,
+            now,
+        )
+
+    async def _activate_or_keep_pending(
+        self,
+        incoming: Subscription,
+        now: datetime,
+    ) -> None:
+        """Activate immediately or preserve a future scheduled start."""
+
+        scheduled_start = self._as_utc(incoming.current_period_start)
+
+        if scheduled_start > now:
+            request_logger.info(
+                "Subscription remains pending until scheduled start: "
+                "subscription_id=%s scheduled_start=%s",
+                incoming.external_subscription_id,
+                scheduled_start,
+            )
+            return
+
+        if incoming.status != SubscriptionStatus.ACTIVE:
+            await self._save_status(
+                incoming,
+                SubscriptionStatus.ACTIVE,
+                now,
+            )
+
+    async def _handle_status_changed(
+        self,
+        data: dict[str, Any],
+        subscription_details: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        """Handle activation, renewal, upgrade, downgrade and cancellation."""
+
+        subscription_id = str(
+            subscription_details.get("subscription_id") or data.get("subscription_id") or ""
+        )
+
+        cf_subscription_id = str(subscription_details.get("cf_subscription_id") or "")
+
+        provider_status = str(
+            subscription_details.get("subscription_status") or data.get("subscription_status") or ""
+        ).upper()
+
+        if not subscription_id and not cf_subscription_id:
+            raise ValueError("Cashfree webhook is missing subscription identifiers")
+
+        incoming = await self._find_subscription(
+            subscription_id,
+            cf_subscription_id,
+        )
+
+        if incoming is None:
+            # Raising allows the webhook to be retried if the local
+            # subscription record has not yet been persisted.
+            raise ValueError(
+                "No local subscription found for Cashfree subscription "
+                f"{subscription_id or cf_subscription_id}"
+            )
+
+        request_logger.info(
+            "Processing subscription status change: user_id=%s "
+            "subscription_id=%s local_status=%s provider_status=%s",
+            incoming.user_id,
+            incoming.external_subscription_id,
+            incoming.status,
+            provider_status,
+        )
+
+        # Handle cancellation and expiration events for the incoming
+        # subscription. These are statuses inside the same event type.
+        if provider_status in {"CANCELLED", "CANCELED"}:
+            if incoming.status != SubscriptionStatus.CANCELLED:
+                await self._save_status(
+                    incoming,
+                    SubscriptionStatus.CANCELLED,
+                    now,
+                )
+            return
+
+        if provider_status == "EXPIRED":
+            if incoming.status != SubscriptionStatus.EXPIRED:
+                await self._save_status(
+                    incoming,
+                    SubscriptionStatus.EXPIRED,
+                    now,
+                )
+            return
+
+        if provider_status == "PAUSED":
+            request_logger.info(
+                "Subscription paused; explicit local pause handling "
+                "is not configured: subscription_id=%s",
+                incoming.external_subscription_id,
+            )
+            return
+
+        if provider_status != "ACTIVE":
+            request_logger.info(
+                "Ignoring unsupported subscription status: %s",
+                provider_status,
+            )
+            return
+
+        # Duplicate ACTIVE notifications must not repeat plan changes.
+        if incoming.status == SubscriptionStatus.ACTIVE:
+            return
+
+        # A new subscription should normally be locally PENDING when
+        # it first receives its ACTIVE notification from Cashfree.
+        if incoming.status != SubscriptionStatus.PENDING:
+            request_logger.info(
+                "Ignoring ACTIVE event for non-pending subscription: "
+                "subscription_id=%s local_status=%s",
+                incoming.external_subscription_id,
+                incoming.status,
+            )
+            return
+
+        current = await self._get_previous_subscription(incoming)
+
+        # No previous eligible subscription: activate or schedule it.
+        if current is None:
+            await self._activate_or_keep_pending(incoming, now)
+            return
+
+        current_price = current.snapshot.price
+        incoming_price = incoming.snapshot.price
+
+        request_logger.info(
+            "Comparing subscriptions: user_id=%s current_plan=%s "
+            "incoming_plan=%s current_price=%s incoming_price=%s",
+            incoming.user_id,
+            current.plan_id,
+            incoming.plan_id,
+            current_price,
+            incoming_price,
+        )
+
+        # UPGRADE: cancel the previous live subscription in Cashfree
+        # and the DB. An already-cancelled historical record is left alone.
+        if incoming_price > current_price:
+            await self._cancel_previous_subscription(current, now)
+
+            await self._activate_or_keep_pending(incoming, now)
+            return
+
+        # DOWNGRADE: cancel the previous live subscription in Cashfree
+        # and the DB. The incoming subscription stays pending if its
+        # scheduled start is in the future.
+        if incoming_price < current_price:
+            await self._cancel_previous_subscription(current, now)
+
+            await self._activate_or_keep_pending(incoming, now)
+            return
+
+        # Equal prices are not sufficient to identify a renewal.
+        # Require the same plan ID as well.
+        if incoming.plan_id != current.plan_id:
+            raise ValueError(
+                "Cannot classify equal-price, different-plan subscriptions as a renewal"
+            )
+
+        # RENEWAL: do not cancel the previous subscription.
+        # Only update the incoming subscription's status/schedule.
+        await self._activate_or_keep_pending(incoming, now)
+
+        request_logger.info(
+            "Renewal processed without cancelling previous subscription: "
+            "user_id=%s incoming_subscription_id=%s",
+            incoming.user_id,
+            incoming.external_subscription_id,
+        )
+
     async def execute(
         self,
         raw_payload: bytes,
@@ -37,103 +373,58 @@ class HandleSubscriptionWebhookUseCase:
         timestamp: str,
         event_data: dict[str, Any],
     ) -> bool:
-        # Step 1: Cryptographic signature verification
-        if not self._payment_gateway.verify_webhook_signature(raw_payload, signature, timestamp):
+        """Verify and process only SUBSCRIPTION_STATUS_CHANGED events."""
+
+        if not self._payment_gateway.verify_webhook_signature(
+            raw_payload,
+            signature,
+            timestamp,
+        ):
             raise InvalidWebhookSignatureError()
 
-        # Step 2: Extract event identity
-        event_type = str(
-            event_data.get("type")
-            or event_data.get("event")
-            or event_data.get("event_type")
-            or "UNKNOWN"
+        event_type, data, subscription_details = self._extract_data(event_data)
+
+        if event_type != "SUBSCRIPTION_STATUS_CHANGED":
+            request_logger.info(
+                "Ignoring unsupported webhook event: %s",
+                event_type,
+            )
+            return True
+
+        subscription_id = str(
+            subscription_details.get("subscription_id") or data.get("subscription_id") or ""
         )
-        data = event_data.get("data") or event_data.get("subscription") or event_data
+
+        event_time = str(event_data.get("event_time") or timestamp)
+
         event_id = str(
             event_data.get("event_id")
             or event_data.get("id")
-            or f"{event_type}_{data.get('subscription_id')}_{timestamp}"
+            or (f"{event_type}_{subscription_id}_{event_time}")
         )
 
-        # Step 3: Check idempotency
         if await self._webhook_repo.has_been_processed(event_id):
+            request_logger.info(
+                "Duplicate webhook ignored: event_id=%s",
+                event_id,
+            )
             return True
 
-        # Step 4: Process event
         now = datetime.now(UTC)
-        normalized_type = event_type.upper()
 
-        if any(term in normalized_type for term in ("ACTIVATION", "CHARGED", "NEW", "SUCCESS")):
-            sub_id = str(data.get("subscription_id") or "")
-            customer_id = str(
-                data.get("customer_id") or data.get("customer_details", {}).get("customer_id") or ""
-            )
-            plan_code = str(
-                data.get("plan_id") or data.get("plan_details", {}).get("plan_id") or ""
-            )
+        await self._handle_status_changed(
+            data,
+            subscription_details,
+            now,
+        )
 
-            plan = await self._plan_repo.get_by_code(plan_code)
-            if not plan:
-                raise PlanNotFoundError(plan_code)
-
-            # Freeze plan terms into immutable snapshot
-            snapshot = PlanSnapshot(
-                plan_name=plan.name,
-                max_seconds_per_request=plan.max_seconds_per_request,
-                max_usage_per_day=plan.max_usage_per_day,
-                price=plan.offer_price,
-                currency=plan.currency,
-            )
-
-            # Duration calculation based on billing period
-            period = BillingPeriod.from_str(plan.billing_period)
-            period_end = now + timedelta(days=period.duration_days)
-
-            # Existing subscription or new
-            existing_sub = await self._subscription_repo.get_by_external_id(sub_id)
-            subscription = Subscription(
-                id=existing_sub.id if existing_sub else None,  # type: ignore[arg-type]
-                user_id=customer_id or (existing_sub.user_id if existing_sub else "unknown"),
-                plan_id=plan.id,
-                status=SubscriptionStatus.ACTIVE,
-                provider="cashfree",
-                external_subscription_id=sub_id,
-                external_customer_id=customer_id,
-                current_period_start=now,
-                current_period_end=period_end,
-                snapshot=snapshot,
-            )
-            await self._subscription_repo.save(subscription)
-
-        elif any(term in normalized_type for term in ("CANCEL", "EXPIRED", "PAUSED")):
-            sub_id = str(data.get("subscription_id") or "")
-            existing_sub = await self._subscription_repo.get_by_external_id(sub_id)
-            if existing_sub:
-                status = (
-                    SubscriptionStatus.CANCELLED
-                    if "CANCEL" in normalized_type
-                    else SubscriptionStatus.EXPIRED
-                )
-                updated_sub = Subscription(
-                    id=existing_sub.id,
-                    user_id=existing_sub.user_id,
-                    plan_id=existing_sub.plan_id,
-                    status=status,
-                    provider=existing_sub.provider,
-                    external_subscription_id=existing_sub.external_subscription_id,
-                    external_customer_id=existing_sub.external_customer_id,
-                    current_period_start=existing_sub.current_period_start,
-                    current_period_end=existing_sub.current_period_end,
-                    cancelled_at=now,
-                    snapshot=existing_sub.snapshot,
-                )
-                await self._subscription_repo.save(updated_sub)
-
-        # Step 5: Record event for idempotency
+        # Record only after successful processing. The DB transaction
+        # should atomically commit subscription changes and this event.
         await self._webhook_repo.record_event(
             event_id=event_id,
             event_type=event_type,
             payload=event_data,
             status="processed",
         )
+
         return True

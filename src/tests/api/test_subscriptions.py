@@ -42,7 +42,7 @@ class FakeCheckoutUseCase:
     async def execute(self, user, plan_code, return_url):
         return CheckoutSessionResult(
             subscription_id="sub_test_123",
-            payment_link="https://payments.cashfree.com/sub/sub_test_123",
+            checkout_session_id="session_test_123",
             status="pending",
         )
 
@@ -145,7 +145,8 @@ async def test_create_checkout_authenticated() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["subscription_id"] == "sub_test_123"
-    assert "payment_link" in data
+    assert data["checkout_session_id"] == "session_test_123"
+    assert "payment_link" not in data
 
 
 @pytest.mark.asyncio

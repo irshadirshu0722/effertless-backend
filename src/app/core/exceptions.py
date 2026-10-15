@@ -145,6 +145,17 @@ class PlanNotFoundError(AppError):
         )
 
 
+class ActiveSubscriptionError(AppError):
+    """Raised when user already has an active subscription to the requested plan."""
+
+    def __init__(self, message: str = "You already have an active subscription to this plan."):
+        super().__init__(
+            code="ACTIVE_SUBSCRIPTION_EXISTS",
+            message=message,
+            status_code=400,
+        )
+
+
 class InvalidWebhookSignatureError(AppError):
     """Raised when an incoming webhook signature is invalid or tampered with."""
 

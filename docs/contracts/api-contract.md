@@ -263,7 +263,7 @@ System endpoints `/health` and `/health/ready` are public.
 ```json
 {
   "subscription_id": "sub_cf_12345",
-  "payment_link": "https://payments.cashfree.com/sub/...",
+  "checkout_session_id": "session_h3sW8eURRsT_aJXadO3KwVGnEpDdBMvf5E7dEi_vrshRKH0qWzAIOi35F79fCIzwDiqxI6_8pICNHBZ8Oj7zd6itHgK96ajWYf_Lw_W7X8Hg",
   "status": "pending"
 }
 ```

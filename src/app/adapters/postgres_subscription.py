@@ -1,10 +1,11 @@
 """PostgreSQL implementations of subscription and plan repositories."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.plan import Plan
@@ -75,14 +76,50 @@ class PostgresSubscriptionRepository(SubscriptionRepository):
         self._session = session
 
     async def get_active_by_user_id(self, user_id: str) -> Subscription | None:
+        now = datetime.now(UTC)
+
         stmt = (
             select(SubscriptionModel)
             .where(
                 SubscriptionModel.user_id == user_id,
-                SubscriptionModel.status.in_(
-                    [SubscriptionStatus.ACTIVE.value, SubscriptionStatus.TRIALING.value]
+                or_(
+                    SubscriptionModel.status.in_(
+                        [
+                            SubscriptionStatus.ACTIVE.value,
+                            SubscriptionStatus.TRIALING.value,
+                        ]
+                    ),
+                    (SubscriptionModel.status == SubscriptionStatus.CANCELLED.value)
+                    & (SubscriptionModel.current_period_end < now),
                 ),
             )
+            .order_by(
+                case(
+                    (
+                        SubscriptionModel.status.in_(
+                            [
+                                SubscriptionStatus.ACTIVE.value,
+                                SubscriptionStatus.TRIALING.value,
+                            ]
+                        ),
+                        0,
+                    ),
+                    else_=1,
+                ),
+                SubscriptionModel.current_period_end.desc(),
+            )
+            .limit(1)
+        )
+
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+
+        return model.to_domain() if model else None
+
+    async def get_latest_by_user_id(self, user_id: str) -> Subscription | None:
+        stmt = (
+            select(SubscriptionModel)
+            .where(SubscriptionModel.user_id == user_id)
             .order_by(SubscriptionModel.current_period_end.desc())
             .limit(1)
         )

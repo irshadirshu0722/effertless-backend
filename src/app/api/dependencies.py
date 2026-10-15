@@ -207,8 +207,9 @@ def get_user_subscription_use_case(
 def get_initiate_checkout_use_case(
     plan_repo: Annotated[PlanRepository, Depends(get_plan_repo)],
     gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
+    sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
 ) -> InitiateCheckoutUseCase:
-    return InitiateCheckoutUseCase(plan_repo, gateway)
+    return InitiateCheckoutUseCase(plan_repo, gateway, sub_repo)
 
 
 def get_handle_webhook_use_case(

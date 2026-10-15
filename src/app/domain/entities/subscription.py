@@ -14,6 +14,8 @@ class SubscriptionStatus(StrEnum):
     PAST_DUE = "past_due"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+    PENDING = "pending"
+    SCHEDULED = "scheduled"
 
 
 @dataclass(frozen=True, slots=True)

@@ -286,7 +286,8 @@ async def test_checkout_endpoint_edge_cases(
     assert success.status_code == 200
     res_data = success.json()
     assert res_data["subscription_id"].startswith("sub_")
-    assert "payment_link" in res_data
+    assert res_data["checkout_session_id"] == f"session_mock_{res_data['subscription_id']}"
+    assert "payment_link" not in res_data
     assert res_data["status"] == "pending"
 
 
