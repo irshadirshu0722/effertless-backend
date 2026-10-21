@@ -179,9 +179,7 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
                     response.status_code,
                     response.text[:2000],
                 )
-                raise SubscriptionPaymentError(
-                    f"Cashfree plan creation failed: {response.text}"
-                ) from httpx.RequestError
+                raise SubscriptionPaymentError(f"Cashfree plan creation failed: {response.text}")
 
             logger.info(
                 "Cashfree plan created successfully: plan_id=%s",

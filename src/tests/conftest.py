@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
+from app.adapters.services import RedisCache
 from app.api.dependencies import (
     get_db_session,
     get_identity_verifier,
@@ -244,3 +245,9 @@ async def integration_client(
     transport = ASGITransport(app=integration_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+def redis_cache(redis_client: Redis) -> RedisCache:
+    """Provide RedisCache backed by the real Redis container."""
+    return RedisCache(redis_client)
