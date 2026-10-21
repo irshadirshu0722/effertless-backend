@@ -1,3 +1,5 @@
+"""Factories for subscription domain entities."""
+
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -27,11 +29,12 @@ def make_subscription_data(
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
     snapshot_plan_name: str | None = "Pro",
-    snapshot_max_seconds: str | None = "120",
+    snapshot_max_seconds: int | None = 120,
     snapshot_max_usage_per_day: int | None = 100,
     snapshot_price: Decimal | None = Decimal("20.00"),
     snapshot_currency: str | None = "PLN",
 ) -> Subscription:
+    """Build a valid subscription for tests."""
     now = datetime.now(UTC)
 
     return Subscription(

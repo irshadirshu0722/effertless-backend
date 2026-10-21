@@ -2,8 +2,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.application.use_case.subscription import CheckoutSessionResult, PlanNotFoundError
+from app.application.use_case.subscription import PlanNotFoundError
 from app.application.use_case.subscription.command import InitiateCheckoutCommand
+from app.application.use_case.subscription.results import CheckoutSessionResult
 from app.core.exceptions import ActiveSubscriptionError
 from app.domain.entities.plan import BillingPeriod, Plan
 from app.domain.entities.subscription import (
