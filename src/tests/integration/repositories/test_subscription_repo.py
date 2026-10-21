@@ -358,3 +358,67 @@ async def test_get_returns_none_when_no_record_matches(
     result = await subscription_repo.get(user_id="unknown-user")
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_has_user_used_trial_returns_false_when_no_trial_exists(
+    subscription_repo,
+):
+    result = await subscription_repo.has_user_used_trial("new-user")
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_has_user_used_trial_returns_true_when_trial_exists(
+    subscription_repo,
+):
+    now = datetime.now(UTC)
+
+    trial_subscription = make_subscription_data(
+        has_trial=True,
+        trial_start=now,
+        trial_end=now + timedelta(days=7),
+    )
+    await subscription_repo.save(trial_subscription)
+
+    result = await subscription_repo.has_user_used_trial(trial_subscription.user_id)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_has_user_used_trial_ignores_other_users(
+    subscription_repo,
+):
+    now = datetime.now(UTC)
+
+    trial_subscription = make_subscription_data(
+        has_trial=True,
+        trial_start=now,
+        trial_end=now + timedelta(days=7),
+    )
+    await subscription_repo.save(trial_subscription)
+
+    result = await subscription_repo.has_user_used_trial("another-user")
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_subscription_trial_fields_round_trip(subscription_repo):
+    now = datetime.now(UTC)
+
+    subscription = make_subscription_data(
+        has_trial=True,
+        trial_start=now,
+        trial_end=now + timedelta(days=7),
+    )
+
+    saved = await subscription_repo.save(subscription)
+    retrieved = await subscription_repo.get_by_id(saved.id)
+
+    assert retrieved is not None
+    assert retrieved.has_trial is True
+    assert retrieved.trial_start == now
+    assert retrieved.trial_end == now + timedelta(days=7)

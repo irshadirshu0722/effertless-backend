@@ -19,6 +19,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.drivers.admin_dashboard import setup_admin
+from app.drivers.bootstrap.trail_plan_setup import create_or_update_trail_plan
 from app.drivers.config.database import create_engine
 from app.ports.services.authentication import IdentityVerifier
 
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         settings.app_env,
         settings.app_debug,
     )
+    await create_or_update_trail_plan()
     yield
     logger.info("Shutting down %s", settings.app_name)
 
@@ -72,7 +74,6 @@ def create_app(
         try:
             response = await call_next(request)
         except Exception:
-            print("Enter")
             duration_ms = (perf_counter() - started_at) * 1000
             request_logger.exception(
                 "Request failed method=%s path=%s duration_ms=%.2f",

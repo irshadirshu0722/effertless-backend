@@ -6,15 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Integer,
-    Numeric,
-    String,
-    func,
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.entities.subscription import (
@@ -113,6 +105,19 @@ class SubscriptionModel(Base):
         nullable=False,
         default="INR",
     )
+    has_trial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+
+    trial_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    trial_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -149,6 +154,9 @@ class SubscriptionModel(Base):
             snapshot_currency=self.snapshot_currency,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            has_trial=self.has_trial,
+            trial_start=self.trial_start,
+            trial_end=self.trial_end,
         )
 
     @classmethod
@@ -189,4 +197,7 @@ class SubscriptionModel(Base):
             snapshot_max_usage_per_day=(sub.snapshot_max_usage_per_day),
             snapshot_price=sub.snapshot_price,
             snapshot_currency=sub.snapshot_currency,
+            has_trial=sub.has_trial,
+            trial_start=sub.trial_start,
+            trial_end=sub.trial_end,
         )

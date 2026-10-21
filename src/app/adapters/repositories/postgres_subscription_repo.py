@@ -91,6 +91,20 @@ class PostgresSubscriptionRepository(SubscriptionRepository):
         result = await self._session.execute(stmt)
         return {str(status): int(count) for status, count in result.all()}
 
+    async def has_user_used_trial(self, user_id: str) -> bool:
+        """Return whether the user has ever been granted a trial."""
+        statement = (
+            select(SubscriptionModel.id)
+            .where(
+                SubscriptionModel.user_id == user_id,
+                SubscriptionModel.has_trial.is_(True),
+            )
+            .limit(1)
+        )
+
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none() is not None
+
     async def save(self, subscription: Subscription) -> Subscription:
         model = SubscriptionModel.from_domain(subscription)
         merged = await self._session.merge(model)

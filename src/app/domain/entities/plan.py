@@ -76,6 +76,9 @@ class Plan:
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    has_trial: bool = False
+    trial_duration_days: int | None = None
+
     def __post_init__(self) -> None:
         self.code = self.code.strip()
         self.name = self.name.strip()

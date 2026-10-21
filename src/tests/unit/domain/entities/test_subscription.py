@@ -11,6 +11,7 @@ from app.domain.entities.subscription import (
     SubscriptionOperationType,
     SubscriptionStatus,
 )
+from tests.factories.make_subscription import make_subscription_data
 
 
 @pytest.fixture
@@ -401,3 +402,27 @@ def test_subscription_is_mutable(
     subscription.status = SubscriptionStatus.CANCELLED
 
     assert subscription.status is SubscriptionStatus.CANCELLED
+
+
+def test_trial_subscription_requires_trial_dates():
+    with pytest.raises(ValueError, match="trial_start and trial_end"):
+        make_subscription_data(has_trial=True)
+
+
+def test_trial_end_must_be_after_trial_start():
+    now = datetime.now(UTC)
+
+    with pytest.raises(ValueError, match="trial_end"):
+        make_subscription_data(
+            has_trial=True,
+            trial_start=now,
+            trial_end=now - timedelta(seconds=1),
+        )
+
+
+def test_non_trial_subscription_can_have_no_trial_dates():
+    subscription = make_subscription_data()
+
+    assert subscription.has_trial is False
+    assert subscription.trial_start is None
+    assert subscription.trial_end is None

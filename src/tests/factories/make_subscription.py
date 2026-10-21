@@ -33,6 +33,9 @@ def make_subscription_data(
     snapshot_max_usage_per_day: int | None = 100,
     snapshot_price: Decimal | None = Decimal("20.00"),
     snapshot_currency: str | None = "PLN",
+    has_trial: bool = False,
+    trial_start: datetime | None = None,
+    trial_end: datetime | None = None,
 ) -> Subscription:
     """Build a valid subscription for tests."""
     now = datetime.now(UTC)
@@ -58,4 +61,7 @@ def make_subscription_data(
         snapshot_max_usage_per_day=snapshot_max_usage_per_day,
         snapshot_price=snapshot_price,
         snapshot_currency=snapshot_currency,
+        has_trial=has_trial,
+        trial_start=trial_start,
+        trial_end=trial_end,
     )

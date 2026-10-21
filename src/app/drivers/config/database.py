@@ -7,12 +7,13 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 
 
-def create_engine(settings: Settings) -> AsyncEngine:
+def create_engine(settings: Settings = get_settings()) -> AsyncEngine:
     """Create an async SQLAlchemy engine from environment-backed settings."""
-    if not settings.database_url:
+
+    if settings and not settings.database_url:
         raise ValueError("DATABASE_URL must be configured")
     return create_async_engine(settings.database_url, pool_pre_ping=True)
 

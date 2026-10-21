@@ -62,6 +62,9 @@ class Subscription:
     snapshot_max_usage_per_day: int | None = None
     snapshot_price: Decimal | None = None
     snapshot_currency: str | None = None
+    has_trial: bool = False
+    trial_start: datetime | None = None
+    trial_end: datetime | None = None
 
     def __post_init__(self) -> None:
         self.user_id = self.user_id.strip()
@@ -102,6 +105,16 @@ class Subscription:
 
             if not self.snapshot_plan_name:
                 raise ValueError("snapshot_plan_name must not be empty")
+
+        if (self.has_trial and self.trial_start is None) or self.trial_end is None:
+            raise ValueError("trial_start and trial_end are required when has_trial is True")
+
+        if (
+            self.trial_start is not None
+            and self.trial_end is not None
+            and self.trial_end <= self.trial_start
+        ):
+            raise ValueError("trial_end must be later than trial_start")
 
         if self.snapshot_max_seconds is not None and (
             isinstance(self.snapshot_max_seconds, bool)

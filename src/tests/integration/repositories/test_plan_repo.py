@@ -134,3 +134,38 @@ async def test_save_updates_existing_plan(plan_repo) -> None:
     assert fetched is not None
     assert fetched.name == "Premium Plus"
     assert fetched.actual_price == Decimal("50.00")
+
+
+async def test_update_modifies_existing_plan(plan_repo) -> None:
+    plan = await plan_repo.save(make_plan_data(code="premium"))
+
+    plan.name = "Premium Plus"
+    plan.actual_price = Decimal("120.00")
+    plan.offer_price = Decimal("90.00")
+    plan.is_active = False
+
+    updated = await plan_repo.update(plan)
+
+    assert updated.id == plan.id
+    assert updated.name == "Premium Plus"
+    assert updated.actual_price == Decimal("120.00")
+    assert updated.offer_price == Decimal("90.00")
+    assert updated.is_active is False
+
+    fetched = await plan_repo.get_by_id(plan.id)
+
+    assert fetched is not None
+    assert fetched.name == "Premium Plus"
+    assert fetched.actual_price == Decimal("120.00")
+    assert fetched.offer_price == Decimal("90.00")
+    assert fetched.is_active is False
+
+
+async def test_update_raises_when_plan_does_not_exist(plan_repo) -> None:
+    from uuid import uuid4
+
+    plan = make_plan_data(code="missing")
+    plan.id = uuid4()
+
+    with pytest.raises(ValueError, match="not found"):
+        await plan_repo.update(plan)
