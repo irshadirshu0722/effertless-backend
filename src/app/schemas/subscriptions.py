@@ -47,6 +47,7 @@ class UserSubscriptionResponse(BaseModel):
     """Current user subscription status, limits, and today's usage."""
 
     status: str
+    is_active: bool = True
     plan_name: str
     current_period_end: datetime | None = None
     limits: TierLimitsSchema

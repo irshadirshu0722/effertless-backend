@@ -229,6 +229,7 @@ System endpoints `/health` and `/health/ready` are public.
 ```json
 {
   "status": "active",
+  "is_active": true,
   "plan_name": "Lite",
   "current_period_end": "2026-11-09T00:00:00Z",
   "limits": {

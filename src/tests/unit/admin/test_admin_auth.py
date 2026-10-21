@@ -4,10 +4,10 @@ import pytest
 from starlette.datastructures import FormData
 from starlette.requests import Request
 
-from app.admin.auth import AdminAuth
 from app.core.exceptions import InvalidAuthTokenError
 from app.domain.entities.authenticated_user import AuthenticatedUser
-from app.ports.authentication import IdentityVerifier
+from app.drivers.admin.auth import AdminAuth
+from app.ports.services.authentication import IdentityVerifier
 
 
 class DummyIdentityVerifier(IdentityVerifier):

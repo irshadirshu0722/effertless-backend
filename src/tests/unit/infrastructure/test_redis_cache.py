@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.adapters.redis_cache import RedisCache
+from app.adapters.services.cache_service.redis_cache import RedisCache
 
 
 class FakeRedis:

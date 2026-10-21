@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.admin.views import PlanAdmin
 from app.domain.entities.plan import Plan
+from app.drivers.admin.views import PlanAdmin
 from app.drivers.models.plan import PlanModel
 
 

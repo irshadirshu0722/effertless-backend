@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.adapters.cashfree import CashfreeSubscriptionAdapter
+from app.adapters.services.payment_gateway.cashfree import CashfreeSubscriptionAdapter
 from app.core.config import Settings
 from app.domain.entities.plan import BillingPeriod, Plan
 
@@ -68,7 +68,7 @@ async def test_create_checkout_session_mock_fallback(test_plan: Plan) -> None:
 
 
 def test_cashfree_plan_interval_type_enum() -> None:
-    from app.adapters.cashfree import CashfreePlanIntervalType
+    from app.adapters.services.payment_gateway.cashfree import CashfreePlanIntervalType
 
     assert CashfreePlanIntervalType.DAY.value == "DAY"
     assert CashfreePlanIntervalType.WEEK.value == "WEEK"
@@ -141,7 +141,7 @@ async def test_create_checkout_session_sends_exact_cashfree_plan_interval_type()
 
     import httpx
 
-    from app.adapters.cashfree import CashfreePlanIntervalType
+    from app.adapters.services.payment_gateway.cashfree import CashfreePlanIntervalType
 
     captured_requests: list[httpx.Request] = []
 

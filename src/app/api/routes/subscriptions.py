@@ -14,15 +14,16 @@ from app.api.dependencies import (
     get_subscription_repo,
     get_user_subscription_use_case,
 )
-from app.application.use_case.get_user_subscription import GetUserSubscriptionUseCase
-from app.application.use_case.handle_subscription_webhook import (
+from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
+from app.application.use_case.subscription.handle_subscription_webhook import (
     HandleSubscriptionWebhookUseCase,
 )
-from app.application.use_case.initiate_checkout import InitiateCheckoutUseCase
-from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.initiate_checkout import InitiateCheckoutUseCase
 from app.domain.entities.authenticated_user import AuthenticatedUser
 from app.domain.entities.subscription import Subscription, SubscriptionStatus
-from app.ports.subscription import PaymentGateway, SubscriptionRepository
+from app.ports.repository import SubscriptionRepository
+from app.ports.services import PaymentGateway
 from app.schemas.subscriptions import (
     CancelSubscriptionResponse,
     CheckoutRequest,
@@ -79,6 +80,7 @@ async def get_my_subscription(
     details = await use_case.execute(current_user.user_id)
     return UserSubscriptionResponse(
         status=details.status,
+        is_active=details.is_active,
         plan_name=details.plan_name,
         current_period_end=details.current_period_end,
         limits=TierLimitsSchema(

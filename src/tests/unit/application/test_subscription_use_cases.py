@@ -9,12 +9,12 @@ from uuid import UUID
 import pytest
 
 from app.application.use_case.check_entitlement import CheckEntitlementUseCase
-from app.application.use_case.get_user_subscription import GetUserSubscriptionUseCase
-from app.application.use_case.handle_subscription_webhook import (
+from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
+from app.application.use_case.subscription.handle_subscription_webhook import (
     HandleSubscriptionWebhookUseCase,
 )
-from app.application.use_case.initiate_checkout import InitiateCheckoutUseCase
-from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.initiate_checkout import InitiateCheckoutUseCase
 from app.core.config import Settings
 from app.core.exceptions import (
     ActiveSubscriptionError,

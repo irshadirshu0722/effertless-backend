@@ -24,12 +24,6 @@ from fastapi.responses import JSONResponse
 
 
 class AppError(Exception):
-    """Base exception for all application-level errors.
-
-    Subclass this for specific domain/application errors. The API layer
-    maps these to HTTP responses via the registered exception handler.
-    """
-
     def __init__(
         self,
         code: str = "INTERNAL_SERVER_ERROR",

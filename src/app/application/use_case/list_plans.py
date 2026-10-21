@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from app.domain.entities.plan import Plan
-from app.ports.subscription import PlanRepository
+from app.ports.repository import PlanRepository
 
 
 class ListPlansUseCase:

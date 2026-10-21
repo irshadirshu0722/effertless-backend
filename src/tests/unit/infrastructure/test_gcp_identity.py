@@ -3,7 +3,7 @@
 import pytest
 from firebase_admin import auth
 
-from app.adapters.gcp_identity import GcpIdentityVerifier
+from app.adapters.services.authentication_service.gcp_identity import GcpIdentityVerifier
 from app.core.config import Settings
 from app.core.exceptions import AuthTokenRevokedError, InvalidAuthTokenError
 

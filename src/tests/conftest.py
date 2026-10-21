@@ -26,7 +26,7 @@ from app.core.config import Settings
 from app.core.exceptions import InvalidAuthTokenError
 from app.domain.entities.authenticated_user import AuthenticatedUser
 from app.drivers.models import Base
-from app.ports.authentication import IdentityVerifier
+from app.ports.services.authentication import IdentityVerifier
 from main import app as global_app
 from main import create_app
 
@@ -42,11 +42,6 @@ async def async_client():
     transport = ASGITransport(app=global_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
-
-
-# ---------------------------------------------------------------------------
-# Testcontainers for PostgreSQL and Redis
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session")

@@ -13,34 +13,26 @@ from fastapi import Depends, Header, WebSocket
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.adapters.cashfree import CashfreeSubscriptionAdapter
-from app.adapters.gcp_identity import GcpIdentityVerifier
-from app.adapters.postgres_subscription import (
+from app.adapters.repositories import (
     PostgresPlanRepository,
     PostgresSubscriptionRepository,
     PostgresWebhookEventRepository,
 )
-from app.adapters.redis_usage_tracker import RedisUsageTracker
+from app.adapters.services import CashfreeSubscriptionAdapter, GcpIdentityVerifier
 from app.application.use_case.check_entitlement import CheckEntitlementUseCase
-from app.application.use_case.get_user_subscription import GetUserSubscriptionUseCase
-from app.application.use_case.handle_subscription_webhook import (
+from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
+from app.application.use_case.subscription.handle_subscription_webhook import (
     HandleSubscriptionWebhookUseCase,
 )
-from app.application.use_case.initiate_checkout import InitiateCheckoutUseCase
-from app.application.use_case.list_plans import ListPlansUseCase
+from app.application.use_case.subscription.initiate_checkout import InitiateCheckoutUseCase
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AuthenticationRequiredError, InvalidAuthTokenError
-from app.domain.entities.authenticated_user import AuthenticatedUser
-from app.drivers.database import create_engine, create_session_factory
-from app.drivers.redis import create_redis_client
-from app.ports.authentication import IdentityVerifier
-from app.ports.subscription import (
-    PaymentGateway,
-    PlanRepository,
-    SubscriptionRepository,
-    UsageTracker,
-    WebhookEventRepository,
-)
+from app.drivers.config.database import create_engine, create_session_factory
+from app.drivers.config.redis import create_redis_client
+from app.ports.repository import PlanRepository, SubscriptionRepository, WebhookEventRepository
+from app.ports.services import AuthenticatedUser, PaymentGateway
+from app.ports.services.authentication import IdentityVerifier
 
 __all__ = [
     "Settings",
@@ -57,15 +49,9 @@ __all__ = [
     "get_redis_client",
     "get_settings",
     "get_subscription_repo",
-    "get_usage_tracker",
     "get_user_subscription_use_case",
     "get_webhook_repo",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Database and Redis Drivers
-# ---------------------------------------------------------------------------
 
 
 @lru_cache
@@ -173,12 +159,6 @@ def get_webhook_repo(
     return PostgresWebhookEventRepository(session)
 
 
-def get_usage_tracker(
-    redis: Annotated[Redis, Depends(get_redis_client)],
-) -> UsageTracker:
-    return RedisUsageTracker(redis)
-
-
 def get_payment_gateway(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PaymentGateway:
@@ -198,10 +178,9 @@ def get_list_plans_use_case(
 
 def get_user_subscription_use_case(
     sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
-    usage_tracker: Annotated[UsageTracker, Depends(get_usage_tracker)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> GetUserSubscriptionUseCase:
-    return GetUserSubscriptionUseCase(sub_repo, usage_tracker, settings)
+    return GetUserSubscriptionUseCase(sub_repo, settings)
 
 
 def get_initiate_checkout_use_case(
@@ -223,7 +202,6 @@ def get_handle_webhook_use_case(
 
 def get_check_entitlement_use_case(
     sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
-    usage_tracker: Annotated[UsageTracker, Depends(get_usage_tracker)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckEntitlementUseCase:
-    return CheckEntitlementUseCase(sub_repo, usage_tracker, settings)
+    return CheckEntitlementUseCase(sub_repo, settings)

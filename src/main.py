@@ -13,14 +13,14 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 
-from app.adapters.gcp_identity import GcpIdentityVerifier
-from app.admin.setup import setup_admin
+from app.adapters.services.authentication_service.gcp_identity import GcpIdentityVerifier
 from app.api.routes import health, v1
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
-from app.drivers.database import create_engine
-from app.ports.authentication import IdentityVerifier
+from app.drivers.admin_dashboard import setup_admin
+from app.drivers.config.database import create_engine
+from app.ports.services.authentication import IdentityVerifier
 
 request_logger = logging.getLogger("app.requests")
 

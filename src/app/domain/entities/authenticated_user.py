@@ -16,7 +16,11 @@ class AuthenticatedUser:
     claims: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.user_id:
+        if not self.user_id.strip():
             raise ValueError("Authenticated user_id must not be empty")
 
-        object.__setattr__(self, "claims", MappingProxyType(dict(self.claims)))
+        object.__setattr__(
+            self,
+            "claims",
+            MappingProxyType(dict(self.claims)),
+        )

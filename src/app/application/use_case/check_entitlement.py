@@ -4,7 +4,7 @@ from app.core.config import Settings
 from app.core.exceptions import AudioExceedsTierLimitError, DailyQuotaExceededError
 from app.domain.value_objects.plan_snapshot import TierLimits
 from app.domain.value_objects.usage_balance import UsageBalance
-from app.ports.subscription import SubscriptionRepository, UsageTracker
+from app.ports.repository import SubscriptionRepository
 
 
 class CheckEntitlementUseCase:
@@ -13,11 +13,10 @@ class CheckEntitlementUseCase:
     def __init__(
         self,
         subscription_repo: SubscriptionRepository,
-        usage_tracker: UsageTracker,
         settings: Settings,
     ) -> None:
         self._subscription_repo = subscription_repo
-        self._usage_tracker = usage_tracker
+        self._usage_tracker = None
         self._settings = settings
 
     async def get_applicable_limits(self, user_id: str) -> TierLimits:
