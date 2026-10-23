@@ -3,6 +3,7 @@ import pytest_asyncio
 
 from app.adapters.repositories import (
     PostgresCreditRepository,
+    PostgresCreditTransactionRepository,
     PostgresPlanRepository,
     PostgresSubscriptionRepository,
     PostgresTopUpRepository,
@@ -34,6 +35,11 @@ def credit_repo(db_session):
 @pytest.fixture
 def top_up_repo(db_session):
     return PostgresTopUpRepository(session=db_session)
+
+
+@pytest.fixture
+def credit_transaction_repo(db_session):
+    return PostgresCreditTransactionRepository(session=db_session)
 
 
 @pytest_asyncio.fixture
