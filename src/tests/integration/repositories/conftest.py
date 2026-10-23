@@ -5,6 +5,7 @@ from app.adapters.repositories import (
     PostgresCreditRepository,
     PostgresPlanRepository,
     PostgresSubscriptionRepository,
+    PostgresTopUpRepository,
     PostgresWebhookEventRepository,
 )
 from tests.factories import make_plan_data
@@ -28,6 +29,11 @@ def webhook_event_repo(db_session):
 @pytest.fixture
 def credit_repo(db_session):
     return PostgresCreditRepository(session=db_session)
+
+
+@pytest.fixture
+def top_up_repo(db_session):
+    return PostgresTopUpRepository(session=db_session)
 
 
 @pytest_asyncio.fixture
