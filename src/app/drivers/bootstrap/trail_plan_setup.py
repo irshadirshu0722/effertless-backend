@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.adapters.repositories.postgres_plan_repo import PostgresPlanRepository
 from app.core.config import settings
 from app.core.logging import logging
-from app.domain.entities.plan import BillingPeriod, Plan
+from app.domain.entities.plan import Plan
 from app.drivers.config.database import create_engine, create_session_factory
 
 bootstrap_logger = logging.getLogger("app.bootstrap")
@@ -29,7 +29,6 @@ async def create_or_update_trail_plan() -> None:
 
                 new_plan = Plan(
                     actual_price=Decimal(2),
-                    billing_period=BillingPeriod.YEARLY,
                     code="trail",
                     currency="INR",
                     is_active=True,

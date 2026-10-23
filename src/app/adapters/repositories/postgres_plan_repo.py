@@ -1,89 +1,129 @@
-"""PostgreSQL implementations of subscription and plan repositories."""
+"""PostgreSQL repository for subscription plans."""
 
-from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.entities.plan import Plan
+from app.domain.entities.plan import Plan, PlanCode
 from app.drivers.models.plan import PlanModel
-from app.ports.repository import (
-    PlanRepository,
-)
 
 
-class PostgresPlanRepository(PlanRepository):
-    """PostgreSQL implementation of PlanRepository."""
+class PostgresPlanRepository:
+    """Persist and retrieve subscription plans using PostgreSQL."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_active(self) -> Sequence[Plan]:
-        stmt = (
-            select(PlanModel)
-            .where(PlanModel.is_active.is_(True), PlanModel.is_deleted.is_(False))
-            .order_by(PlanModel.actual_price.asc())
-        )
-        result = await self._session.execute(stmt)
-        models = result.scalars().all()
-        return [model.to_domain() for model in models]
-
-    async def list_all(
-        self, include_deleted: bool = False, is_active: bool | None = None
-    ) -> Sequence[Plan]:
-        stmt = select(PlanModel)
-        if not include_deleted:
-            stmt = stmt.where(PlanModel.is_deleted.is_(False))
-        if is_active is not None:
-            stmt = stmt.where(PlanModel.is_active == is_active)
-        stmt = stmt.order_by(PlanModel.actual_price.asc())
-        result = await self._session.execute(stmt)
-        models = result.scalars().all()
-        return [model.to_domain() for model in models]
-
-    async def get_by_code(self, code: str) -> Plan | None:
-        stmt = select(PlanModel).where(PlanModel.code == code, PlanModel.is_deleted.is_(False))
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
-        return model.to_domain() if model else None
-
-    async def get_by_id(self, plan_id: UUID) -> Plan | None:
-        stmt = select(PlanModel).where(PlanModel.id == plan_id)
-        result = await self._session.execute(stmt)
-        model = result.scalar_one_or_none()
-        return model.to_domain() if model else None
-
     async def save(self, plan: Plan) -> Plan:
-        model = PlanModel.from_domain(plan)
-        merged = await self._session.merge(model)
+        """Insert a plan or persist changes to an existing plan."""
+        model = await self._session.get(PlanModel, plan.id)
+
+        if model is None:
+            model = PlanModel.from_domain(plan)
+            self._session.add(model)
+        else:
+            self._update_model(model, plan)
+
         await self._session.flush()
-        await self._session.refresh(merged)
-        return merged.to_domain()
+        await self._session.refresh(model)
+
+        return model.to_domain()
 
     async def update(self, plan: Plan) -> Plan:
-        model = PlanModel.from_domain(plan)
+        """Update an existing plan; raise if it does not exist."""
+        model = await self._session.get(PlanModel, plan.id)
 
-        stmt = (
-            update(PlanModel)
-            .where(PlanModel.id == plan.id)
-            .values(
-                code=model.code,
-                name=model.name,
-                actual_price=model.actual_price,
-                offer_price=model.offer_price,
-                currency=model.currency,
-                billing_period=model.billing_period,
-                is_active=model.is_active,
-                is_deleted=model.is_deleted,
-            )
-            .returning(PlanModel)
-        )
-
-        result = await self._session.execute(stmt)
-        updated_model = result.scalar_one_or_none()
-
-        if updated_model is None:
+        if model is None:
             raise ValueError(f"Plan with id {plan.id} not found")
 
-        return updated_model.to_domain()
+        self._update_model(model, plan)
+
+        await self._session.flush()
+        await self._session.refresh(model)
+
+        return model.to_domain()
+
+    async def get_by_id(self, plan_id: UUID) -> Plan | None:
+        """Retrieve a non-deleted plan by its ID."""
+        statement = select(PlanModel).where(
+            PlanModel.id == plan_id,
+            PlanModel.is_deleted.is_(False),
+        )
+
+        result = await self._session.execute(statement)
+        model = result.scalar_one_or_none()
+
+        return model.to_domain() if model is not None else None
+
+    async def get_by_code(self, code: PlanCode | str) -> Plan | None:
+        """Retrieve a non-deleted plan by its fixed code."""
+        code_value = (code.value if isinstance(code, PlanCode) else code).strip().upper()
+
+        statement = select(PlanModel).where(
+            PlanModel.code == code_value,
+            PlanModel.is_deleted.is_(False),
+        )
+
+        result = await self._session.execute(statement)
+        model = result.scalar_one_or_none()
+
+        return model.to_domain() if model is not None else None
+
+    async def get_by_id_including_deleted(
+        self,
+        plan_id: UUID,
+    ) -> Plan | None:
+        """Retrieve a plan by ID, including soft-deleted plans."""
+        model = await self._session.get(PlanModel, plan_id)
+
+        return model.to_domain() if model is not None else None
+
+    async def list_active(self) -> list[Plan]:
+        """List active, non-deleted plans ordered by actual price."""
+        statement = (
+            select(PlanModel)
+            .where(
+                PlanModel.is_active.is_(True),
+                PlanModel.is_deleted.is_(False),
+            )
+            .order_by(PlanModel.actual_price.asc(), PlanModel.code.asc())
+        )
+
+        result = await self._session.execute(statement)
+        return [model.to_domain() for model in result.scalars().all()]
+
+    async def list_all(
+        self,
+        *,
+        include_deleted: bool = False,
+        is_active: bool | None = None,
+    ) -> list[Plan]:
+        """List plans with optional deletion and active-status filters."""
+        statement = select(PlanModel)
+
+        if not include_deleted:
+            statement = statement.where(PlanModel.is_deleted.is_(False))
+
+        if is_active is not None:
+            statement = statement.where(PlanModel.is_active.is_(is_active))
+
+        statement = statement.order_by(
+            PlanModel.actual_price.asc(),
+            PlanModel.code.asc(),
+        )
+
+        result = await self._session.execute(statement)
+        return [model.to_domain() for model in result.scalars().all()]
+
+    @staticmethod
+    def _update_model(model: PlanModel, plan: Plan) -> None:
+        """Copy domain values to an existing ORM model."""
+        model.code = plan.code.value
+        model.name = plan.name
+        model.monthly_seconds = plan.monthly_seconds
+        model.actual_price = plan.actual_price
+        model.offer_price = plan.offer_price
+        model.currency = plan.currency
+        model.is_active = plan.is_active
+        model.is_deleted = plan.is_deleted

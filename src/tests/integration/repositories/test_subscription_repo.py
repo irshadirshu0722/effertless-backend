@@ -15,6 +15,11 @@ from tests.factories import make_subscription_data
 pytestmark = pytest.mark.asyncio
 
 
+# ---------------------------------------------------------------------------
+# Save and update
+# ---------------------------------------------------------------------------
+
+
 async def test_save_persists_subscription(subscription_repo) -> None:
     subscription = make_subscription_data(
         status=SubscriptionStatus.PENDING,
@@ -27,14 +32,16 @@ async def test_save_persists_subscription(subscription_repo) -> None:
     assert saved.user_id == "user-123"
     assert saved.status is SubscriptionStatus.PENDING
     assert saved.external_subscription_id == "cf-sub-001"
+    assert saved.snapshot_plan_name == "Pro"
     assert saved.snapshot_max_seconds == 120
-    assert saved.snapshot_max_usage_per_day == 100
     assert saved.snapshot_price == Decimal("20.00")
+    assert saved.snapshot_currency == "INR"
+    assert saved.has_trial is False
+    assert saved.trial_start is None
+    assert saved.trial_end is None
 
 
-async def test_save_updates_existing_subscription(
-    subscription_repo,
-) -> None:
+async def test_save_updates_existing_subscription(subscription_repo) -> None:
     subscription = await subscription_repo.save(
         make_subscription_data(
             external_subscription_id="cf-sub-update",
@@ -53,18 +60,40 @@ async def test_save_updates_existing_subscription(
     assert updated.operation_type is SubscriptionOperationType.UPGRADE
 
 
-async def test_save_rejects_incomplete_snapshot(
-    subscription_repo,
-) -> None:
+async def test_save_rejects_incomplete_snapshot(subscription_repo) -> None:
     subscription = make_subscription_data(snapshot_max_seconds=None)
 
     with pytest.raises(ValueError, match="complete plan snapshot"):
         await subscription_repo.save(subscription)
 
 
-async def test_get_by_id_returns_subscription(
-    subscription_repo,
-) -> None:
+async def test_save_rejects_missing_snapshot_price(subscription_repo) -> None:
+    subscription = make_subscription_data(snapshot_price=None)
+
+    with pytest.raises(ValueError, match="complete plan snapshot"):
+        await subscription_repo.save(subscription)
+
+
+async def test_save_rejects_missing_snapshot_currency(subscription_repo) -> None:
+    subscription = make_subscription_data(snapshot_currency=None)
+
+    with pytest.raises(ValueError, match="complete plan snapshot"):
+        await subscription_repo.save(subscription)
+
+
+async def test_save_rejects_missing_snapshot_plan_name(subscription_repo) -> None:
+    subscription = make_subscription_data(snapshot_plan_name=None)
+
+    with pytest.raises(ValueError, match="complete plan snapshot"):
+        await subscription_repo.save(subscription)
+
+
+# ---------------------------------------------------------------------------
+# Get by ID
+# ---------------------------------------------------------------------------
+
+
+async def test_get_by_id_returns_subscription(subscription_repo) -> None:
     saved = await subscription_repo.save(make_subscription_data())
 
     result = await subscription_repo.get_by_id(saved.id)
@@ -72,12 +101,18 @@ async def test_get_by_id_returns_subscription(
     assert result is not None
     assert result.id == saved.id
     assert result.user_id == saved.user_id
+    assert result.snapshot_max_seconds == saved.snapshot_max_seconds
 
 
 async def test_get_by_id_returns_none_for_missing_subscription(
     subscription_repo,
 ) -> None:
     assert await subscription_repo.get_by_id(uuid4()) is None
+
+
+# ---------------------------------------------------------------------------
+# Get by external subscription ID
+# ---------------------------------------------------------------------------
 
 
 async def test_get_by_external_id_returns_subscription(
@@ -99,6 +134,11 @@ async def test_get_by_external_id_returns_none_when_missing(
     subscription_repo,
 ) -> None:
     assert await subscription_repo.get_by_external_id("unknown-external-id") is None
+
+
+# ---------------------------------------------------------------------------
+# Active subscription lookup
+# ---------------------------------------------------------------------------
 
 
 async def test_get_active_by_user_id_returns_active_subscription(
@@ -142,6 +182,11 @@ async def test_get_active_by_user_id_returns_none_when_no_active_record(
     assert await subscription_repo.get_active_by_user_id("user-123") is None
 
 
+# ---------------------------------------------------------------------------
+# Latest subscription lookup
+# ---------------------------------------------------------------------------
+
+
 async def test_get_latest_by_user_id_returns_latest_period_end(
     subscription_repo,
 ) -> None:
@@ -176,6 +221,11 @@ async def test_get_latest_by_user_id_returns_none_for_unknown_user(
     assert await subscription_repo.get_latest_by_user_id("unknown-user") is None
 
 
+# ---------------------------------------------------------------------------
+# List and filtering
+# ---------------------------------------------------------------------------
+
+
 async def test_list_all_returns_subscriptions_and_total(
     subscription_repo,
 ) -> None:
@@ -189,9 +239,7 @@ async def test_list_all_returns_subscriptions_and_total(
     assert len(subscriptions) == 3
 
 
-async def test_list_all_filters_by_user_id(
-    subscription_repo,
-) -> None:
+async def test_list_all_filters_by_user_id(subscription_repo) -> None:
     await subscription_repo.save(make_subscription_data(user_id="user-a"))
     await subscription_repo.save(make_subscription_data(user_id="user-b"))
     await subscription_repo.save(make_subscription_data(user_id="user-a"))
@@ -199,12 +247,11 @@ async def test_list_all_filters_by_user_id(
     subscriptions, total = await subscription_repo.list_all(user_id="user-a")
 
     assert total == 2
+    assert len(subscriptions) == 2
     assert all(sub.user_id == "user-a" for sub in subscriptions)
 
 
-async def test_list_all_filters_by_status(
-    subscription_repo,
-) -> None:
+async def test_list_all_filters_by_status(subscription_repo) -> None:
     await subscription_repo.save(
         make_subscription_data(
             status=SubscriptionStatus.ACTIVE,
@@ -218,7 +265,9 @@ async def test_list_all_filters_by_status(
         )
     )
 
-    subscriptions, total = await subscription_repo.list_all(status=SubscriptionStatus.ACTIVE.value)
+    subscriptions, total = await subscription_repo.list_all(
+        status=SubscriptionStatus.ACTIVE.value,
+    )
 
     assert total == 1
     assert subscriptions[0].status is SubscriptionStatus.ACTIVE
@@ -238,6 +287,7 @@ async def test_list_all_filters_by_user_and_status(
         make_subscription_data(
             user_id="user-a",
             status=SubscriptionStatus.PENDING,
+            is_active=False,
         )
     )
     await subscription_repo.save(
@@ -258,9 +308,7 @@ async def test_list_all_filters_by_user_and_status(
     assert subscriptions[0].status is SubscriptionStatus.ACTIVE
 
 
-async def test_list_all_applies_pagination(
-    subscription_repo,
-) -> None:
+async def test_list_all_applies_pagination(subscription_repo) -> None:
     now = datetime.now(UTC)
 
     for index in range(3):
@@ -292,6 +340,11 @@ async def test_list_all_applies_pagination(
     assert next_page[0].user_id == "user-2"
 
 
+# ---------------------------------------------------------------------------
+# Status counts
+# ---------------------------------------------------------------------------
+
+
 async def test_get_status_counts(subscription_repo) -> None:
     await subscription_repo.save(
         make_subscription_data(
@@ -311,6 +364,11 @@ async def test_get_status_counts(subscription_repo) -> None:
 
     assert counts["ACTIVE"] == 2
     assert counts["PENDING"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Generic field filtering
+# ---------------------------------------------------------------------------
 
 
 async def test_get_by_field_filters(subscription_repo) -> None:
@@ -342,9 +400,7 @@ async def test_get_supports_null_filter(subscription_repo) -> None:
     assert result.id == saved.id
 
 
-async def test_get_rejects_invalid_filter_field(
-    subscription_repo,
-) -> None:
+async def test_get_rejects_invalid_filter_field(subscription_repo) -> None:
     with pytest.raises(
         ValueError,
         match="Invalid subscription filter field",
@@ -360,19 +416,22 @@ async def test_get_returns_none_when_no_record_matches(
     assert result is None
 
 
-@pytest.mark.asyncio
+# ---------------------------------------------------------------------------
+# Trial eligibility
+# ---------------------------------------------------------------------------
+
+
 async def test_has_user_used_trial_returns_false_when_no_trial_exists(
     subscription_repo,
-):
+) -> None:
     result = await subscription_repo.has_user_used_trial("new-user")
 
     assert result is False
 
 
-@pytest.mark.asyncio
 async def test_has_user_used_trial_returns_true_when_trial_exists(
     subscription_repo,
-):
+) -> None:
     now = datetime.now(UTC)
 
     trial_subscription = make_subscription_data(
@@ -387,10 +446,9 @@ async def test_has_user_used_trial_returns_true_when_trial_exists(
     assert result is True
 
 
-@pytest.mark.asyncio
 async def test_has_user_used_trial_ignores_other_users(
     subscription_repo,
-):
+) -> None:
     now = datetime.now(UTC)
 
     trial_subscription = make_subscription_data(
@@ -405,8 +463,9 @@ async def test_has_user_used_trial_ignores_other_users(
     assert result is False
 
 
-@pytest.mark.asyncio
-async def test_subscription_trial_fields_round_trip(subscription_repo):
+async def test_subscription_trial_fields_round_trip(
+    subscription_repo,
+) -> None:
     now = datetime.now(UTC)
 
     subscription = make_subscription_data(
@@ -422,3 +481,20 @@ async def test_subscription_trial_fields_round_trip(subscription_repo):
     assert retrieved.has_trial is True
     assert retrieved.trial_start == now
     assert retrieved.trial_end == now + timedelta(days=7)
+
+
+async def test_cancelled_trial_still_counts_as_used(
+    subscription_repo,
+) -> None:
+    now = datetime.now(UTC)
+
+    trial_subscription = make_subscription_data(
+        status=SubscriptionStatus.CANCELLED,
+        is_active=False,
+        has_trial=True,
+        trial_start=now - timedelta(days=10),
+        trial_end=now - timedelta(days=3),
+    )
+    await subscription_repo.save(trial_subscription)
+
+    assert await subscription_repo.has_user_used_trial(trial_subscription.user_id) is True

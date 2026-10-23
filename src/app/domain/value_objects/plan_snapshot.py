@@ -8,8 +8,7 @@ from decimal import Decimal
 class TierLimits:
     """Configured limits for a tier."""
 
-    max_seconds_per_request: int
-    max_usage_per_day: int
+    max_seconds: int
 
 
 @dataclass(frozen=True, slots=True)

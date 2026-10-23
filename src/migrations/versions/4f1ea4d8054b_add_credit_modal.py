@@ -1,16 +1,16 @@
-"""add subscription related_subscription_id
+"""Add Credit modal
 
-Revision ID: 7dafa7bb074a
-Revises: d4e4912e94d3
-Create Date: 2026-10-15 19:40:16.336636
+Revision ID: 4f1ea4d8054b
+Revises: 1b7f9f123c68
+Create Date: 2026-10-23 16:59:45.499961
 
 """
 
 from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.
-revision: str = "7dafa7bb074a"
-down_revision: str | None = "d4e4912e94d3"
+revision: str = "4f1ea4d8054b"
+down_revision: str | None = "1b7f9f123c68"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

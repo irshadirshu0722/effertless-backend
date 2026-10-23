@@ -5,8 +5,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.domain.entities.plan import BillingPeriod
-
 
 class PlanResponse(BaseModel):
     """Public subscription plan details."""
@@ -14,7 +12,6 @@ class PlanResponse(BaseModel):
     id: UUID
     code: str
     name: str
-    billing_period: BillingPeriod
     actual_price: float
     offer_price: float
     currency: str

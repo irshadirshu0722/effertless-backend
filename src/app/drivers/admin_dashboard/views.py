@@ -8,7 +8,7 @@ from starlette.requests import Request
 
 from app.adapters.services.payment_gateway.cashfree import CashfreeSubscriptionAdapter
 from app.core.config import get_settings
-from app.domain.entities.plan import BillingPeriod, Plan
+from app.domain.entities.plan import Plan
 from app.drivers.models.plan import PlanModel
 from app.drivers.models.subscription import SubscriptionModel
 from app.drivers.models.webhook_event import WebhookEventModel
@@ -27,12 +27,9 @@ class PlanAdmin(ModelView, model=PlanModel):
         PlanModel.id,
         PlanModel.code,
         PlanModel.name,
-        PlanModel.billing_period,
         PlanModel.actual_price,
         PlanModel.offer_price,
         PlanModel.currency,
-        PlanModel.max_seconds_per_request,
-        PlanModel.max_usage_per_day,
         PlanModel.is_active,
         PlanModel.is_deleted,
     ]
@@ -66,7 +63,6 @@ class PlanAdmin(ModelView, model=PlanModel):
         return Plan(
             code=str(data["code"]),
             name=str(data["name"]),
-            billing_period=BillingPeriod.from_str(data["billing_period"]),
             actual_price=Decimal(str(data["actual_price"])),
             offer_price=Decimal(str(data["offer_price"])),
             currency=str(data.get("currency") or "INR"),

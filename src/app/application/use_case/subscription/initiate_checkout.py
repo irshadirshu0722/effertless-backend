@@ -6,7 +6,7 @@ from app.application.use_case.subscription import PlanNotFoundError
 from app.application.use_case.subscription.command import InitiateCheckoutCommand
 from app.application.use_case.subscription.results import CheckoutSessionResult
 from app.core.exceptions import ActiveSubscriptionError
-from app.domain.entities.plan import BillingPeriod, Plan
+from app.domain.entities.plan import Plan
 from app.domain.entities.subscription import (
     Subscription,
     SubscriptionOperationType,
@@ -97,8 +97,7 @@ class InitiateCheckoutUseCase:
         )
 
         period_start = first_charge_time or now
-        period = BillingPeriod.from_str(plan.billing_period)
-        period_end = period_start + timedelta(days=period.duration_days)
+        period_end = period_start + timedelta(days=Subscription.get_total_days())
 
         pending_subscription = Subscription(
             id=None,

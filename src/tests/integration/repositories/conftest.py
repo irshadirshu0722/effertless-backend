@@ -2,6 +2,7 @@ import pytest
 import pytest_asyncio
 
 from app.adapters.repositories import (
+    PostgresCreditRepository,
     PostgresPlanRepository,
     PostgresSubscriptionRepository,
     PostgresWebhookEventRepository,
@@ -22,6 +23,11 @@ def plan_repo(db_session):
 @pytest.fixture
 def webhook_event_repo(db_session):
     return PostgresWebhookEventRepository(session=db_session)
+
+
+@pytest.fixture
+def credit_repo(db_session):
+    return PostgresCreditRepository(session=db_session)
 
 
 @pytest_asyncio.fixture

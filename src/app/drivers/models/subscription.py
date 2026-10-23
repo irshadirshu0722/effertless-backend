@@ -6,7 +6,16 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, false, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    false,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.entities.subscription import (
@@ -22,91 +31,102 @@ class SubscriptionModel(Base):
 
     __tablename__ = "subscriptions"
 
-    id: Mapped[UUID] = mapped_column(
-        primary_key=True,
-        default=uuid4,
-    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+
     user_id: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
         index=True,
     )
+
     plan_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("plans.id", ondelete="SET NULL"),
         nullable=True,
     )
+
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
         index=True,
     )
+
     provider: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="cashfree",
     )
+
     external_subscription_id: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,
         nullable=True,
         index=True,
     )
+
     external_customer_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
+
     current_period_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
+
     current_period_end: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
+
     cancelled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,
     )
+
     operation_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default=SubscriptionOperationType.NEW.value,
     )
+
     related_subscription_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("subscriptions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    # Frozen plan snapshot.
     snapshot_plan_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
     )
+
     snapshot_max_seconds: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )
-    snapshot_max_usage_per_day: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-    )
+
     snapshot_price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         nullable=False,
     )
+
     snapshot_currency: Mapped[str] = mapped_column(
         String(3),
         nullable=False,
         default="INR",
     )
+
     has_trial: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=false()
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
     )
 
     trial_start: Mapped[datetime | None] = mapped_column(
@@ -124,6 +144,7 @@ class SubscriptionModel(Base):
         nullable=False,
         server_default=func.now(),
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -149,7 +170,6 @@ class SubscriptionModel(Base):
             operation_type=SubscriptionOperationType(self.operation_type),
             snapshot_plan_name=self.snapshot_plan_name,
             snapshot_max_seconds=self.snapshot_max_seconds,
-            snapshot_max_usage_per_day=(self.snapshot_max_usage_per_day),
             snapshot_price=self.snapshot_price,
             snapshot_currency=self.snapshot_currency,
             created_at=self.created_at,
@@ -165,7 +185,6 @@ class SubscriptionModel(Base):
         snapshot_fields = {
             "snapshot_plan_name": sub.snapshot_plan_name,
             "snapshot_max_seconds": sub.snapshot_max_seconds,
-            "snapshot_max_usage_per_day": (sub.snapshot_max_usage_per_day),
             "snapshot_price": sub.snapshot_price,
             "snapshot_currency": sub.snapshot_currency,
         }
@@ -194,7 +213,6 @@ class SubscriptionModel(Base):
             operation_type=sub.operation_type.value,
             snapshot_plan_name=sub.snapshot_plan_name,
             snapshot_max_seconds=sub.snapshot_max_seconds,
-            snapshot_max_usage_per_day=(sub.snapshot_max_usage_per_day),
             snapshot_price=sub.snapshot_price,
             snapshot_currency=sub.snapshot_currency,
             has_trial=sub.has_trial,

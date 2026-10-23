@@ -13,7 +13,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.exceptions import SubscriptionPaymentError
-from app.domain.entities.plan import BillingPeriod, Plan
+from app.domain.entities.plan import Plan
 from app.ports.services.payment_gateway import PaymentGateway
 
 logger = logging.getLogger("app.payments.cashfree")
@@ -26,14 +26,6 @@ class CashfreePlanIntervalType(StrEnum):
     WEEK = "WEEK"
     MONTH = "MONTH"
     YEAR = "YEAR"
-
-
-_BILLING_PERIOD_TO_CASHFREE_INTERVAL: dict[BillingPeriod, CashfreePlanIntervalType] = {
-    BillingPeriod.DAILY: CashfreePlanIntervalType.DAY,
-    BillingPeriod.WEEKLY: CashfreePlanIntervalType.WEEK,
-    BillingPeriod.MONTHLY: CashfreePlanIntervalType.MONTH,
-    BillingPeriod.YEARLY: CashfreePlanIntervalType.YEAR,
-}
 
 
 class CashfreeSubscriptionAdapter(PaymentGateway):
@@ -106,9 +98,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
         return formatted
 
     def _plan_payload(self, plan: Plan) -> dict[str, Any]:
-        period = BillingPeriod.from_str(plan.billing_period)
-        interval_type = _BILLING_PERIOD_TO_CASHFREE_INTERVAL[period].value
-
         payload = {
             "plan_id": plan.code,
             "plan_name": plan.name,
@@ -117,7 +106,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
             "plan_recurring_amount": float(plan.offer_price),
             "plan_max_amount": float(plan.offer_price),
             "plan_intervals": 1,
-            "plan_interval_type": interval_type,
             "plan_note": f"Effortless plan {plan.code}",
         }
 
@@ -126,7 +114,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
             "billing_period=%s interval_type=%s currency=%s",
             plan.code,
             plan.billing_period,
-            interval_type,
             plan.currency,
         )
 
@@ -302,8 +289,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
         """Create a Cashfree subscription checkout session."""
 
         subscription_id = f"sub_{uuid.uuid4().hex[:16]}"
-        period = BillingPeriod.from_str(plan.billing_period)
-        interval_type = _BILLING_PERIOD_TO_CASHFREE_INTERVAL[period].value
 
         logger.info(
             "Creating Cashfree subscription: subscription_id=%s "
@@ -314,7 +299,6 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
             plan.code,
             plan.offer_price,
             plan.currency,
-            interval_type,
             (first_charge_time.isoformat() if first_charge_time else "provider_default"),
         )
 
@@ -331,7 +315,7 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
                 "plan_type": "PERIODIC",
                 "plan_currency": plan.currency,
                 "plan_amount": float(plan.offer_price),
-                "plan_interval_type": interval_type,
+                "plan_interval_type": "monthly",
                 "plan_intervals": 1,
             },
             "subscription_meta": {

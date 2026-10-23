@@ -6,8 +6,6 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from app.domain.value_objects.plan_snapshot import TierLimits
-
 
 class SubscriptionStatus(StrEnum):
     """Provider-independent subscription lifecycle states."""
@@ -59,7 +57,6 @@ class Subscription:
     # Frozen plan snapshot.
     snapshot_plan_name: str | None = None
     snapshot_max_seconds: int | None = None
-    snapshot_max_usage_per_day: int | None = None
     snapshot_price: Decimal | None = None
     snapshot_currency: str | None = None
     has_trial: bool = False
@@ -106,7 +103,7 @@ class Subscription:
             if not self.snapshot_plan_name:
                 raise ValueError("snapshot_plan_name must not be empty")
 
-        if (self.has_trial and self.trial_start is None) or self.trial_end is None:
+        if self.has_trial and (self.trial_start is None or self.trial_end is None):
             raise ValueError("trial_start and trial_end are required when has_trial is True")
 
         if (
@@ -123,13 +120,6 @@ class Subscription:
         ):
             raise ValueError("snapshot_max_seconds must be a positive integer")
 
-        if self.snapshot_max_usage_per_day is not None and (
-            isinstance(self.snapshot_max_usage_per_day, bool)
-            or not isinstance(self.snapshot_max_usage_per_day, int)
-            or self.snapshot_max_usage_per_day <= 0
-        ):
-            raise ValueError("snapshot_max_usage_per_day must be a positive integer")
-
         if self.snapshot_price is not None:
             if not isinstance(self.snapshot_price, Decimal):
                 raise TypeError("snapshot_price must be a Decimal")
@@ -143,22 +133,27 @@ class Subscription:
             if len(self.snapshot_currency) != 3 or not self.snapshot_currency.isalpha():
                 raise ValueError("snapshot_currency must be a three-letter code")
 
+        if self.has_trial and (self.trial_start is None or self.trial_end is None):
+            raise ValueError("trial_start and trial_end are required when has_trial is True")
+
+        if self.trial_start is not None:
+            self._validate_datetime(self.trial_start, "trial_start")
+
+        if self.trial_end is not None:
+            self._validate_datetime(self.trial_end, "trial_end")
+
+        if (
+            self.trial_start is not None
+            and self.trial_end is not None
+            and self.trial_end <= self.trial_start
+        ):
+            raise ValueError("trial_end must be later than trial_start")
+
     @staticmethod
     def _validate_datetime(value: datetime, field_name: str) -> None:
         """Require timezone-aware datetimes."""
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError(f"{field_name} must be timezone-aware")
-
-    @property
-    def limits(self) -> TierLimits:
-        """Return frozen usage limits for this subscription."""
-        if self.snapshot_max_seconds is None or self.snapshot_max_usage_per_day is None:
-            raise ValueError("Subscription does not have a complete plan snapshot")
-
-        return TierLimits(
-            max_seconds_per_request=self.snapshot_max_seconds,
-            max_usage_per_day=self.snapshot_max_usage_per_day,
-        )
 
     def is_currently_active(
         self,
@@ -171,7 +166,8 @@ class Subscription:
         if not self.is_active:
             return False
 
-        if self.status != SubscriptionStatus.ACTIVE:
-            return False
-
         return self.current_period_start <= current_time < self.current_period_end
+
+    @staticmethod
+    def get_total_days(self):
+        return 30

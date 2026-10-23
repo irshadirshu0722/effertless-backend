@@ -1,6 +1,4 @@
-"""Subscription plan entity and billing specifications."""
-
-from __future__ import annotations
+"""Plan domain entity."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -9,65 +7,30 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 
-class BillingPeriod(StrEnum):
-    """Supported billing intervals."""
+class PlanCode(StrEnum):
+    """Supported subscription plans."""
 
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-    YEARLY = "yearly"
+    BASIC = "BASIC"
+    STANDARD = "STANDARD"
+    PRO = "PRO"
 
-    @classmethod
-    def from_str(
-        cls,
-        value: str | BillingPeriod,
-    ) -> BillingPeriod:
-        """Normalize supported billing-period aliases."""
-        if isinstance(value, cls):
-            return value
 
-        normalized = str(value).strip().lower()
-
-        mapping = {
-            "daily": cls.DAILY,
-            "day": cls.DAILY,
-            "weekly": cls.WEEKLY,
-            "week": cls.WEEKLY,
-            "monthly": cls.MONTHLY,
-            "month": cls.MONTHLY,
-            "yearly": cls.YEARLY,
-            "year": cls.YEARLY,
-        }
-
-        if normalized in mapping:
-            return mapping[normalized]
-
-        valid_options = ", ".join(period.value for period in cls)
-        raise ValueError(f"Invalid billing period '{value}'. Supported values: {valid_options}.")
-
-    @property
-    def duration_days(self) -> int:
-        """Return approximate duration in days."""
-        durations = {
-            BillingPeriod.DAILY: 1,
-            BillingPeriod.WEEKLY: 7,
-            BillingPeriod.MONTHLY: 30,
-            BillingPeriod.YEARLY: 365,
-        }
-        return durations[self]
+PLAN_NAMES = {
+    PlanCode.BASIC: "Basic",
+    PlanCode.STANDARD: "Standard",
+    PlanCode.PRO: "Pro",
+}
 
 
 @dataclass(slots=True)
 class Plan:
-    """Mutable subscription plan entity."""
+    """Fixed monthly subscription plan."""
 
-    code: str
+    code: PlanCode | str
     name: str
-    billing_period: BillingPeriod | str
+    monthly_seconds: int
     actual_price: Decimal
-    offer_price: Decimal
-    max_seconds_per_request: int
-    max_usage_per_day: int
+    offer_price: Decimal | None = None
 
     id: UUID = field(default_factory=uuid4)
     currency: str = "INR"
@@ -76,53 +39,100 @@ class Plan:
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    has_trial: bool = False
-    trial_duration_days: int | None = None
-
     def __post_init__(self) -> None:
-        self.code = self.code.strip()
-        self.name = self.name.strip()
-        self.currency = self.currency.strip().upper()
+        self._validate_code()
+        self._validate_name()
+        self._validate_monthly_seconds()
+        self._validate_prices()
+        self._validate_currency()
+        self._validate_timestamps()
 
-        if not self.code:
-            raise ValueError("Plan code must not be empty")
+    def _validate_code(self) -> None:
+        try:
+            self.code = PlanCode(str(self.code).strip().upper())
+        except ValueError as exc:
+            raise ValueError("code must be BASIC, STANDARD, or PRO") from exc
+
+    def _validate_name(self) -> None:
+        self.name = self.name.strip()
 
         if not self.name:
-            raise ValueError("Plan name must not be empty")
+            raise ValueError("name cannot be empty")
 
-        if len(self.currency) != 3 or not self.currency.isalpha():
-            raise ValueError("Currency must be a three-letter code")
+        expected_name = PLAN_NAMES[self.code]
 
-        if not isinstance(self.actual_price, Decimal):
-            raise TypeError("actual_price must be a Decimal")
+        if self.name != expected_name:
+            raise ValueError(f"name for {self.code.value} must be {expected_name!r}")
 
-        if not isinstance(self.offer_price, Decimal):
-            raise TypeError("offer_price must be a Decimal")
-
-        if not self.actual_price.is_finite():
-            raise ValueError("actual_price must be finite")
-
-        if not self.offer_price.is_finite():
-            raise ValueError("offer_price must be finite")
-
-        if self.actual_price < 0 or self.offer_price < 0:
-            raise ValueError("Plan prices must not be negative")
-
-        if self.offer_price > self.actual_price:
-            raise ValueError("offer_price must not exceed actual_price")
-
-        self.billing_period = BillingPeriod.from_str(self.billing_period)
-
+    def _validate_monthly_seconds(self) -> None:
         if (
-            isinstance(self.max_seconds_per_request, bool)
-            or not isinstance(self.max_seconds_per_request, int)
-            or self.max_seconds_per_request <= 0
+            isinstance(self.monthly_seconds, bool)
+            or not isinstance(self.monthly_seconds, int)
+            or self.monthly_seconds <= 0
         ):
-            raise ValueError("max_seconds_per_request must be a positive integer")
+            raise ValueError("monthly_seconds must be a positive integer")
 
-        if (
-            isinstance(self.max_usage_per_day, bool)
-            or not isinstance(self.max_usage_per_day, int)
-            or self.max_usage_per_day <= 0
-        ):
-            raise ValueError("max_usage_per_day must be a positive integer")
+    def _validate_prices(self) -> None:
+        self.actual_price = self._to_decimal(
+            self.actual_price,
+            "actual_price",
+        )
+
+        if self.actual_price < 0:
+            raise ValueError("actual_price cannot be negative")
+
+        if self.offer_price is not None:
+            self.offer_price = self._to_decimal(
+                self.offer_price,
+                "offer_price",
+            )
+
+            if self.offer_price < 0:
+                raise ValueError("offer_price cannot be negative")
+
+            if self.offer_price > self.actual_price:
+                raise ValueError("offer_price cannot exceed actual_price")
+
+    @staticmethod
+    def _to_decimal(
+        value: Decimal | int | float | str,
+        field_name: str,
+    ) -> Decimal:
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be a valid price")
+
+        try:
+            price = Decimal(str(value))
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            raise ValueError(f"{field_name} must be a valid price") from exc
+
+        if not price.is_finite():
+            raise ValueError(f"{field_name} must be finite")
+
+        return price
+
+    def _validate_currency(self) -> None:
+        self.currency = self.currency.strip().upper()
+
+        if len(self.currency) != 3 or not self.currency.isalpha() or not self.currency.isascii():
+            raise ValueError("currency must be a three-letter currency code")
+
+    def _validate_timestamps(self) -> None:
+        for field_name in ("created_at", "updated_at"):
+            value = getattr(self, field_name)
+
+            if (value is not None and value.tzinfo is None) or value.utcoffset() is None:
+                raise ValueError(f"{field_name} must be timezone-aware")
+
+    @property
+    def effective_price(self) -> Decimal:
+        """Return the offer price when available."""
+        if self.offer_price is not None:
+            return self.offer_price
+
+        return self.actual_price
+
+    @property
+    def is_available(self) -> bool:
+        """Whether the plan can be purchased."""
+        return self.is_active and not self.is_deleted
