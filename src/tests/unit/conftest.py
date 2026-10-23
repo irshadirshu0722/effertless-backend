@@ -7,6 +7,7 @@ import pytest
 def subscription_repo():
     repo = Mock()
     repo.get_active_by_user_id = AsyncMock(return_value=None)
+    repo.has_user_used_trial = AsyncMock(return_value=False)
     repo.save = AsyncMock()
     return repo
 

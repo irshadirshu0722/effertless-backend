@@ -13,12 +13,14 @@ class PlanCode(StrEnum):
     BASIC = "BASIC"
     STANDARD = "STANDARD"
     PRO = "PRO"
+    TRAIL = "TRIAL"
 
 
 PLAN_NAMES = {
     PlanCode.BASIC: "Basic",
     PlanCode.STANDARD: "Standard",
     PlanCode.PRO: "Pro",
+    PlanCode.TRAIL: "Trail",
 }
 
 
@@ -121,7 +123,7 @@ class Plan:
         for field_name in ("created_at", "updated_at"):
             value = getattr(self, field_name)
 
-            if (value is not None and value.tzinfo is None) or value.utcoffset() is None:
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
                 raise ValueError(f"{field_name} must be timezone-aware")
 
     @property

@@ -1,87 +1,146 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
 from app.application.use_case.subscription import PlanNotFoundError
 from app.application.use_case.subscription.command import InitiateCheckoutCommand
+from app.application.use_case.subscription.exceptions import TrailPlanNotFoundError
+from app.core.config import settings
 from app.core.exceptions import ActiveSubscriptionError
+from app.domain.entities.plan import PlanCode
 from app.domain.entities.subscription import (
     SubscriptionOperationType,
     SubscriptionStatus,
 )
+from tests.factories import make_plan_data, make_subscription_data
 
 
 @pytest.fixture
 def checkout_command(user):
     return InitiateCheckoutCommand(
         user=user,
-        plan_code="pro",
+        plan_code="PRO",
         return_url="https://example.com/checkout/return",
+        replace=True,
     )
 
 
 @pytest.fixture
 def current_subscription():
     now = datetime.now(UTC)
-
-    return SimpleNamespace(
-        id="subscription-current",
+    return make_subscription_data(
+        id=uuid4(),
         user_id="user-123",
-        plan_id="plan-old",
+        plan_id="plan-basic",
         status=SubscriptionStatus.ACTIVE,
+        is_active=True,
         cancelled_at=None,
         current_period_start=now - timedelta(days=5),
         current_period_end=now + timedelta(days=25),
-        snapshot=SimpleNamespace(price=Decimal("10.00")),
+        snapshot_plan_name="Basic",
+        snapshot_max_seconds=3600,
+        snapshot_price=Decimal("10.00"),
+        snapshot_currency="PLN",
+    )
+
+
+@pytest.fixture
+def trail_plan():
+    return make_plan_data(
+        id=uuid4(),
+        code=PlanCode.TRAIL,
+        name="Trail",
+        monthly_seconds=600,
+        offer_price=Decimal("0.00"),
+        currency="PLN",
+        is_active=True,
+        is_deleted=False,
+    )
+
+
+def make_plan(
+    *,
+    code,
+    name,
+    price,
+    plan_id,
+    monthly_seconds=3600,
+):
+    return make_plan_data(
+        id=plan_id,
+        code=PlanCode(code),
+        name=name,
+        monthly_seconds=monthly_seconds,
+        actual_price=Decimal(price),
+        offer_price=Decimal(price),
+        currency="PLN",
+        is_active=True,
+        is_deleted=False,
     )
 
 
 @pytest.mark.asyncio
-async def test_execute_creates_new_pending_subscription(
+async def test_execute_creates_new_pending_subscription_with_trial(
     initiate_checkout_service,
     plan_repo,
     subscription_repo,
     payment_gateway,
     active_plan,
+    trail_plan,
     checkout_command,
+    monkeypatch,
 ):
-    plan_repo.get_by_code.return_value = active_plan
+    monkeypatch.setattr(settings, "free_tier_days", 7)
+    plan_repo.get_by_code.side_effect = [
+        active_plan,
+        trail_plan,
+    ]
+    subscription_repo.get_active_by_user_id.return_value = None
+    subscription_repo.has_user_used_trial.return_value = False
 
+    before = datetime.now(UTC)
     result = await initiate_checkout_service.execute(checkout_command)
+    after = datetime.now(UTC)
 
     assert result.subscription_id == "cashfree-sub-123"
     assert result.checkout_session_id == "checkout-session-123"
     assert result.status == "pending"
 
-    plan_repo.get_by_code.assert_awaited_once_with("pro")
     subscription_repo.get_active_by_user_id.assert_awaited_once_with("user-123")
+    subscription_repo.has_user_used_trial.assert_awaited_once_with(user_id="user-123")
 
-    payment_gateway.create_checkout_session.assert_awaited_once_with(
-        user_id="user-123",
-        user_email="user@example.com",
-        plan=active_plan,
-        return_url="https://example.com/checkout/return",
-        first_charge_time=None,
-    )
+    gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
+    assert gateway_kwargs["user_id"] == "user-123"
+    assert gateway_kwargs["user_email"] == "user@example.com"
+    assert gateway_kwargs["plan"] == active_plan
+    assert gateway_kwargs["return_url"] == ("https://example.com/checkout/return")
+    assert before + timedelta(days=7) <= gateway_kwargs["first_charge_time"]
+    assert gateway_kwargs["first_charge_time"] <= after + timedelta(days=7)
 
     subscription_repo.save.assert_awaited_once()
+    saved = subscription_repo.save.await_args.args[0]
 
-    saved_subscription = subscription_repo.save.await_args.args[0]
+    assert saved.user_id == "user-123"
+    assert saved.plan_id == active_plan.id
+    assert saved.status == SubscriptionStatus.PENDING
+    assert saved.provider == "cashfree"
+    assert saved.external_subscription_id == "cashfree-sub-123"
+    assert saved.operation_type == SubscriptionOperationType.NEW
+    assert saved.related_subscription_id is None
 
-    assert saved_subscription.id is None
-    assert saved_subscription.user_id == "user-123"
-    assert saved_subscription.plan_id == "plan-123"
-    assert saved_subscription.status == SubscriptionStatus.PENDING
-    assert saved_subscription.provider == "cashfree"
-    assert saved_subscription.external_subscription_id == "cashfree-sub-123"
-    assert saved_subscription.operation_type == SubscriptionOperationType.NEW
-    assert saved_subscription.related_subscription_id is None
+    assert saved.has_trial is True
+    assert saved.trial_start is not None
+    assert saved.trial_end is not None
+    assert saved.trial_end - saved.trial_start == timedelta(days=7)
+    assert saved.current_period_start == saved.trial_end
 
-    assert saved_subscription.snapshot.plan_name == "Pro"
-    assert saved_subscription.snapshot.price == Decimal("20.00")
-    assert saved_subscription.snapshot.currency == "PLN"
+    assert saved.snapshot_plan_name == active_plan.name
+    assert saved.snapshot_price == active_plan.offer_price
+    assert saved.snapshot_currency == active_plan.currency
+    assert saved.snapshot_max_seconds == active_plan.monthly_seconds
 
 
 @pytest.mark.asyncio
@@ -101,10 +160,7 @@ async def test_execute_rejects_inactive_or_deleted_plan(
     checkout_command,
     plan_changes,
 ):
-    plan_data = vars(active_plan).copy()
-    plan_data.update(plan_changes)
-    plan = SimpleNamespace(**plan_data)
-    plan_repo.get_by_code.return_value = plan
+    plan_repo.get_by_code.return_value = replace(active_plan, **plan_changes)
 
     with pytest.raises(PlanNotFoundError):
         await initiate_checkout_service.execute(checkout_command)
@@ -141,13 +197,19 @@ async def test_execute_rejects_duplicate_active_subscription(
     active_plan,
     checkout_command,
 ):
-    current = SimpleNamespace(
-        id="subscription-current",
+    current = make_subscription_data(
+        id=uuid4(),
+        user_id="user-123",
         plan_id=active_plan.id,
         status=SubscriptionStatus.ACTIVE,
+        is_active=True,
         cancelled_at=None,
+        current_period_start=datetime.now(UTC) - timedelta(days=20),
         current_period_end=datetime.now(UTC) + timedelta(days=10),
-        snapshot=SimpleNamespace(price=active_plan.offer_price),
+        snapshot_plan_name="Pro",
+        snapshot_max_seconds=active_plan.monthly_seconds,
+        snapshot_price=active_plan.offer_price,
+        snapshot_currency=active_plan.currency,
     )
 
     plan_repo.get_by_code.return_value = active_plan
@@ -158,10 +220,11 @@ async def test_execute_rejects_duplicate_active_subscription(
 
     payment_gateway.create_checkout_session.assert_not_awaited()
     subscription_repo.save.assert_not_awaited()
+    subscription_repo.has_user_used_trial.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_execute_starts_upgrade_immediately(
+async def test_execute_starts_upgrade_immediately_when_replace_is_true(
     initiate_checkout_service,
     plan_repo,
     subscription_repo,
@@ -173,20 +236,47 @@ async def test_execute_starts_upgrade_immediately(
     plan_repo.get_by_code.return_value = active_plan
     subscription_repo.get_active_by_user_id.return_value = current_subscription
 
-    result = await initiate_checkout_service.execute(checkout_command)
+    await initiate_checkout_service.execute(checkout_command)
 
-    payment_gateway.create_checkout_session.assert_awaited_once()
     gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
+    saved = subscription_repo.save.await_args.args[0]
 
     assert gateway_kwargs["first_charge_time"] is None
+    assert saved.operation_type == SubscriptionOperationType.UPGRADE
+    assert saved.related_subscription_id == current_subscription.id
+    assert saved.status == SubscriptionStatus.PENDING
+    assert saved.has_trial is False
 
-    saved_subscription = subscription_repo.save.await_args.args[0]
+    subscription_repo.has_user_used_trial.assert_not_awaited()
 
-    assert saved_subscription.operation_type == SubscriptionOperationType.UPGRADE
-    assert saved_subscription.related_subscription_id == current_subscription.id
-    assert saved_subscription.status == SubscriptionStatus.PENDING
 
-    assert result.status == "pending"
+@pytest.mark.asyncio
+async def test_execute_schedules_upgrade_at_period_end_when_replace_is_false(
+    initiate_checkout_service,
+    plan_repo,
+    subscription_repo,
+    payment_gateway,
+    active_plan,
+    user,
+    current_subscription,
+):
+    command = InitiateCheckoutCommand(
+        user=user,
+        plan_code="pro",
+        return_url="https://example.com/checkout/return",
+        replace=False,
+    )
+    plan_repo.get_by_code.return_value = active_plan
+    subscription_repo.get_active_by_user_id.return_value = current_subscription
+
+    await initiate_checkout_service.execute(command)
+
+    gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
+    saved = subscription_repo.save.await_args.args[0]
+
+    assert gateway_kwargs["first_charge_time"] == (current_subscription.current_period_end)
+    assert saved.operation_type == SubscriptionOperationType.UPGRADE
+    assert saved.current_period_start == current_subscription.current_period_end
 
 
 @pytest.mark.asyncio
@@ -195,49 +285,84 @@ async def test_execute_schedules_downgrade_at_period_end(
     plan_repo,
     subscription_repo,
     payment_gateway,
-    active_plan,
-    checkout_command,
+    user,
     current_subscription,
 ):
-    active_plan.offer_price = Decimal("5.00")
-    plan_repo.get_by_code.return_value = active_plan
+    basic_plan = make_plan(
+        code="BASIC",
+        name="Basic",
+        price="5.00",
+        plan_id="plan-basic-new",
+    )
+    command = InitiateCheckoutCommand(
+        user=user,
+        plan_code="basic",
+        return_url="https://example.com/checkout/return",
+        replace=False,
+    )
+    current_subscription.snapshot_plan_name = "PRO"
+    plan_repo.get_by_code.return_value = basic_plan
     subscription_repo.get_active_by_user_id.return_value = current_subscription
 
-    await initiate_checkout_service.execute(checkout_command)
+    await initiate_checkout_service.execute(command)
 
     gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
-    saved_subscription = subscription_repo.save.await_args.args[0]
+    saved = subscription_repo.save.await_args.args[0]
 
-    assert gateway_kwargs["first_charge_time"] == current_subscription.current_period_end
-    assert saved_subscription.operation_type == SubscriptionOperationType.DOWNGRADE
-    assert saved_subscription.current_period_start == current_subscription.current_period_end
-    assert saved_subscription.related_subscription_id == current_subscription.id
+    assert gateway_kwargs["first_charge_time"] == (current_subscription.current_period_end)
+    assert saved.operation_type == SubscriptionOperationType.DOWNGRADE
+    assert saved.current_period_start == current_subscription.current_period_end
+    assert saved.related_subscription_id == current_subscription.id
 
 
 @pytest.mark.asyncio
-async def test_execute_schedules_same_price_different_plan_as_renewal(
+async def test_execute_does_not_apply_trial_if_user_already_used_trial(
     initiate_checkout_service,
     plan_repo,
     subscription_repo,
     payment_gateway,
     active_plan,
     checkout_command,
-    current_subscription,
 ):
-    active_plan.offer_price = current_subscription.snapshot.price
-    current_subscription.plan_id = "another-plan"
-
     plan_repo.get_by_code.return_value = active_plan
-    subscription_repo.get_active_by_user_id.return_value = current_subscription
+    subscription_repo.get_active_by_user_id.return_value = None
+    subscription_repo.has_user_used_trial.return_value = True
 
     await initiate_checkout_service.execute(checkout_command)
 
     gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
-    saved_subscription = subscription_repo.save.await_args.args[0]
+    saved = subscription_repo.save.await_args.args[0]
 
-    assert gateway_kwargs["first_charge_time"] == current_subscription.current_period_end
-    assert saved_subscription.operation_type == SubscriptionOperationType.RENEWAL
-    assert saved_subscription.current_period_start == current_subscription.current_period_end
+    assert gateway_kwargs["first_charge_time"] is None
+    assert saved.has_trial is False
+    assert saved.trial_start is None
+    assert saved.trial_end is None
+    plan_repo.get_by_code.assert_awaited_once_with("PRO")
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_if_trial_plan_is_missing(
+    initiate_checkout_service,
+    plan_repo,
+    subscription_repo,
+    payment_gateway,
+    active_plan,
+    checkout_command,
+):
+    async def get_by_code(code):
+        if str(code).lower() == "pro":
+            return active_plan
+        return None
+
+    plan_repo.get_by_code.side_effect = get_by_code
+    subscription_repo.get_active_by_user_id.return_value = None
+    subscription_repo.has_user_used_trial.return_value = False
+
+    with pytest.raises(TrailPlanNotFoundError):
+        await initiate_checkout_service.execute(checkout_command)
+
+    payment_gateway.create_checkout_session.assert_not_awaited()
+    subscription_repo.save.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -250,6 +375,8 @@ async def test_execute_does_not_save_subscription_if_gateway_fails(
     checkout_command,
 ):
     plan_repo.get_by_code.return_value = active_plan
+    subscription_repo.get_active_by_user_id.return_value = None
+    subscription_repo.has_user_used_trial.return_value = True
     payment_gateway.create_checkout_session.side_effect = RuntimeError(
         "Payment gateway unavailable"
     )
@@ -258,3 +385,101 @@ async def test_execute_does_not_save_subscription_if_gateway_fails(
         await initiate_checkout_service.execute(checkout_command)
 
     subscription_repo.save.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("current_code", "new_code", "expected"),
+    [
+        ("BASIC", "STANDARD", SubscriptionOperationType.UPGRADE),
+        ("BASIC", "PRO", SubscriptionOperationType.UPGRADE),
+        ("STANDARD", "PRO", SubscriptionOperationType.UPGRADE),
+        ("PRO", "STANDARD", SubscriptionOperationType.DOWNGRADE),
+        ("PRO", "BASIC", SubscriptionOperationType.DOWNGRADE),
+        ("STANDARD", "BASIC", SubscriptionOperationType.DOWNGRADE),
+        ("BASIC", "BASIC", SubscriptionOperationType.RENEWAL),
+        ("STANDARD", "STANDARD", SubscriptionOperationType.RENEWAL),
+        ("PRO", "PRO", SubscriptionOperationType.RENEWAL),
+    ],
+)
+def test_find_operation_type(
+    initiate_checkout_service,
+    current_code,
+    new_code,
+    expected,
+):
+    plan = make_plan(
+        code=new_code,
+        name=new_code.title(),
+        price="10.00",
+        plan_id=f"plan-{new_code.lower()}",
+    )
+
+    result = initiate_checkout_service._find_operation_type(current_code, plan)
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_execute_schedules_same_plan_renewal_when_subscription_is_not_active(
+    initiate_checkout_service,
+    plan_repo,
+    subscription_repo,
+    payment_gateway,
+    active_plan,
+    user,
+):
+    period_end = datetime.now(UTC) + timedelta(days=10)
+    current = make_subscription_data(
+        id=uuid4(),
+        user_id="user-123",
+        plan_id=active_plan.id,
+        status=SubscriptionStatus.CANCELLED,
+        is_active=False,
+        cancelled_at=datetime.now(UTC),
+        current_period_start=period_end - timedelta(days=30),
+        current_period_end=period_end,
+        snapshot_plan_name="Pro",
+        snapshot_max_seconds=active_plan.monthly_seconds,
+        snapshot_price=active_plan.offer_price,
+        snapshot_currency=active_plan.currency,
+    )
+    command = InitiateCheckoutCommand(
+        user=user,
+        plan_code="PRO",
+        return_url="https://example.com/checkout/return",
+        replace=True,
+    )
+    plan_repo.get_by_code.return_value = active_plan
+    subscription_repo.get_active_by_user_id.return_value = current
+
+    await initiate_checkout_service.execute(command)
+
+    gateway_kwargs = payment_gateway.create_checkout_session.await_args.kwargs
+    saved = subscription_repo.save.await_args.args[0]
+
+    assert gateway_kwargs["first_charge_time"] == period_end
+    assert saved.operation_type == SubscriptionOperationType.RENEWAL
+    assert saved.current_period_start == period_end
+
+
+@pytest.mark.asyncio
+async def test_execute_does_not_apply_trial_when_existing_subscription_is_found(
+    initiate_checkout_service,
+    plan_repo,
+    subscription_repo,
+    payment_gateway,
+    active_plan,
+    current_subscription,
+    checkout_command,
+):
+    plan_repo.get_by_code.return_value = active_plan
+    subscription_repo.get_active_by_user_id.return_value = current_subscription
+
+    await initiate_checkout_service.execute(checkout_command)
+
+    saved = subscription_repo.save.await_args.args[0]
+
+    assert saved.has_trial is False
+    assert saved.trial_start is None
+    assert saved.trial_end is None
+    subscription_repo.has_user_used_trial.assert_not_awaited()

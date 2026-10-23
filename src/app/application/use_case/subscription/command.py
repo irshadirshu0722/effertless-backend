@@ -8,3 +8,4 @@ class InitiateCheckoutCommand:
     user: AuthenticatedUser
     plan_code: str
     return_url: str
+    replace: bool

@@ -169,5 +169,5 @@ class Subscription:
         return self.current_period_start <= current_time < self.current_period_end
 
     @staticmethod
-    def get_total_days(self):
+    def get_total_days():
         return 30

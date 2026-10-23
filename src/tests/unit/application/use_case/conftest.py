@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
 from app.application.use_case.subscription import InitiateCheckoutUseCase
+from tests.factories.make_plan import make_plan_data
 
 
 @pytest.fixture
@@ -21,17 +23,20 @@ def initiate_checkout_service(
 
 @pytest.fixture
 def active_plan():
-    return SimpleNamespace(
+    now = datetime.now(UTC)
+
+    return make_plan_data(
         id="plan-123",
-        code="pro",
+        code="PRO",
         name="Pro",
-        is_active=True,
-        is_deleted=False,
-        max_seconds_per_request=120,
-        max_usage_per_day=100,
+        monthly_seconds=3600,
+        actual_price=Decimal("20.00"),
         offer_price=Decimal("20.00"),
         currency="PLN",
-        billing_period="monthly",
+        is_active=True,
+        is_deleted=False,
+        created_at=now,
+        updated_at=now,
     )
 
 
