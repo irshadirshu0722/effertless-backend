@@ -1,22 +1,24 @@
 """Pydantic schemas for subscription endpoints."""
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlanResponse(BaseModel):
     """Public subscription plan details."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     code: str
     name: str
-    actual_price: float
-    offer_price: float
+    actual_price: Decimal
+    offer_price: Decimal
     currency: str
-    max_seconds_per_request: int
-    max_usage_per_day: int
+    monthly_seconds: int
 
 
 class PlansListResponse(BaseModel):
@@ -26,7 +28,9 @@ class PlansListResponse(BaseModel):
 
 
 class TierLimitsSchema(BaseModel):
-    """Max limits permitted for user's tier."""
+    """Maximum limits permitted for the user's tier."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     max_seconds_per_request: int
     max_usage_per_day: int
@@ -41,10 +45,12 @@ class UsageTodaySchema(BaseModel):
 
 
 class UserSubscriptionResponse(BaseModel):
-    """Current user subscription status, limits, and today's usage."""
+    """Current subscription status, limits, and today's usage."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     status: str
-    is_active: bool = True
+    is_active: bool
     plan_name: str
     current_period_end: datetime | None = None
     limits: TierLimitsSchema
@@ -54,8 +60,12 @@ class UserSubscriptionResponse(BaseModel):
 class CheckoutRequest(BaseModel):
     """Initiate subscription checkout request."""
 
-    plan_code: str = Field(..., min_length=1, description="Unique plan code")
-    return_url: str = Field(..., min_length=1, description="Redirect URL after payment")
+    plan_code: str = Field(min_length=1, description="Unique plan code")
+    return_url: str = Field(min_length=1, description="Redirect URL after payment")
+    replace: bool = Field(
+        default=False,
+        description="Replace the current subscription immediately instead of waiting for its period to end.",
+    )
 
 
 class CheckoutResponse(BaseModel):
@@ -74,6 +84,6 @@ class CancelSubscriptionResponse(BaseModel):
 
 
 class WebhookResponse(BaseModel):
-    """Response returned to payment gateway webhook call."""
+    """Response returned to the payment gateway webhook."""
 
     status: str = "acknowledged"

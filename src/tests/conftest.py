@@ -31,6 +31,12 @@ from app.ports.services.authentication import IdentityVerifier
 from main import app as global_app
 from main import create_app
 
+pytest_plugins = [
+    "tests.fixtures.payment_gateway",
+    "tests.fixtures.identity_verifier",
+    "tests.fixtures.user",
+]
+
 
 @pytest.fixture
 def anyio_backend():

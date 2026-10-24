@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.core.exceptions import SubscriptionPaymentError
 from app.domain.entities.plan import Plan
 from app.ports.services.payment_gateway import PaymentGateway
@@ -33,10 +33,10 @@ class CashfreeSubscriptionAdapter(PaymentGateway):
 
     def __init__(
         self,
-        settings: Settings,
+        settings: Settings | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._settings = settings
+        self._settings = settings or get_settings()
         self._client = client
         self._base_url = (
             "https://api.cashfree.com/pg"

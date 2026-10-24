@@ -18,6 +18,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.application.use_case.exception import AppError as ApplicationError
+
 # ---------------------------------------------------------------------------
 # Base exception
 # ---------------------------------------------------------------------------
@@ -313,6 +315,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    @app.exception_handler(ApplicationError)
+    async def application_error_handler(request: Request, exc: ApplicationError) -> JSONResponse:
+        """Convert AppError subclasses to the standard error response format."""
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "request_id": request_id_for(request),
+                }
+            },
+        )
+
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
         request: Request,
@@ -343,6 +359,28 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "An unexpected error occurred.",
+                    "request_id": request_id_for(request),
+                }
+            },
+        )
+
+    @app.exception_handler(RuntimeError)
+    async def runtime_error_handler(
+        request: Request,
+        exc: RuntimeError,
+    ) -> JSONResponse:
+        """Handle unexpected runtime errors."""
+        import logging
+
+        logger = logging.getLogger("core.exceptions")
+        logger.exception("Runtime error: %s", str(exc))
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "RUNTIME_ERROR",
+                    "message": "An unexpected runtime error occurred.",
                     "request_id": request_id_for(request),
                 }
             },

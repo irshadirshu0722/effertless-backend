@@ -12,14 +12,15 @@ from app.api.dependencies import (
     get_list_plans_use_case,
     get_payment_gateway,
     get_subscription_repo,
-    get_user_subscription_use_case,
 )
 from app.application.use_case.list_plans import ListPlansUseCase
-from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
+from app.application.use_case.subscription.command import InitiateCheckoutCommand
 from app.application.use_case.subscription.handle_subscription_webhook import (
     HandleSubscriptionWebhookUseCase,
 )
-from app.application.use_case.subscription.initiate_checkout import InitiateCheckoutUseCase
+from app.application.use_case.subscription.initiate_checkout import (
+    InitiateCheckoutUseCase,
+)
 from app.domain.entities.authenticated_user import AuthenticatedUser
 from app.domain.entities.subscription import Subscription, SubscriptionStatus
 from app.ports.repository import SubscriptionRepository
@@ -30,9 +31,6 @@ from app.schemas.subscriptions import (
     CheckoutResponse,
     PlanResponse,
     PlansListResponse,
-    TierLimitsSchema,
-    UsageTodaySchema,
-    UserSubscriptionResponse,
     WebhookResponse,
 )
 
@@ -49,50 +47,22 @@ async def list_plans(
     use_case: Annotated[ListPlansUseCase, Depends(get_list_plans_use_case)],
 ) -> PlansListResponse:
     plans = await use_case.execute()
-    return PlansListResponse(
-        plans=[
-            PlanResponse(
-                id=plan.id,
-                code=plan.code,
-                name=plan.name,
-                billing_period=plan.billing_period,
-                actual_price=float(plan.actual_price),
-                offer_price=float(plan.offer_price),
-                currency=plan.currency,
-                max_seconds_per_request=plan.max_seconds_per_request,
-                max_usage_per_day=plan.max_usage_per_day,
-            )
-            for plan in plans
-        ]
-    )
+    return PlansListResponse(plans=[PlanResponse.model_validate(plan) for plan in plans])
 
 
-@router.get(
-    "/me",
-    response_model=UserSubscriptionResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Get current user subscription details and usage",
-)
-async def get_my_subscription(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-    use_case: Annotated[GetUserSubscriptionUseCase, Depends(get_user_subscription_use_case)],
-) -> UserSubscriptionResponse:
-    details = await use_case.execute(current_user.user_id)
-    return UserSubscriptionResponse(
-        status=details.status,
-        is_active=details.is_active,
-        plan_name=details.plan_name,
-        current_period_end=details.current_period_end,
-        limits=TierLimitsSchema(
-            max_seconds_per_request=details.limits.max_seconds_per_request,
-            max_usage_per_day=details.limits.max_usage_per_day,
-        ),
-        usage_today=UsageTodaySchema(
-            used=details.usage_today.used_today,
-            limit=details.usage_today.limit,
-            remaining=details.usage_today.remaining,
-        ),
-    )
+# @router.get(
+#     "/me",
+#     response_model=UserSubscriptionResponse,
+#     status_code=status.HTTP_200_OK,
+#     summary="Get current user subscription details and usage",
+# )
+# async def get_my_subscription(
+#     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+#     use_case: Annotated[GetUserSubscriptionUseCase, Depends(get_user_subscription_use_case)],
+# ) -> UserSubscriptionResponse:
+#     details = await use_case.execute(current_user.user_id)
+
+#     pass
 
 
 @router.post(
@@ -107,10 +77,14 @@ async def create_checkout(
     use_case: Annotated[InitiateCheckoutUseCase, Depends(get_initiate_checkout_use_case)],
 ) -> CheckoutResponse:
     result = await use_case.execute(
-        user=current_user,
-        plan_code=request.plan_code,
-        return_url=request.return_url,
+        InitiateCheckoutCommand(
+            user=current_user,
+            plan_code=request.plan_code,
+            return_url=request.return_url,
+            replace=request.replace,
+        )
     )
+
     return CheckoutResponse(
         subscription_id=result.subscription_id,
         checkout_session_id=result.checkout_session_id,
@@ -126,13 +100,17 @@ async def create_checkout(
 )
 async def handle_webhook(
     request: Request,
-    use_case: Annotated[HandleSubscriptionWebhookUseCase, Depends(get_handle_webhook_use_case)],
+    use_case: Annotated[
+        HandleSubscriptionWebhookUseCase,
+        Depends(get_handle_webhook_use_case),
+    ],
     x_webhook_signature: Annotated[str | None, Header(alias="x-webhook-signature")] = None,
     x_webhook_timestamp: Annotated[str | None, Header(alias="x-webhook-timestamp")] = None,
 ) -> WebhookResponse:
     raw_payload = await request.body()
+
     try:
-        event_data = json.loads(raw_payload.decode("utf-8"))
+        event_data = json.loads(raw_payload)
     except (UnicodeDecodeError, json.JSONDecodeError):
         event_data = {}
 
@@ -142,6 +120,7 @@ async def handle_webhook(
         timestamp=x_webhook_timestamp or "",
         event_data=event_data,
     )
+
     return WebhookResponse(status="acknowledged")
 
 
@@ -157,25 +136,31 @@ async def cancel_subscription(
     gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
 ) -> CancelSubscriptionResponse:
     active_sub = await sub_repo.get_active_by_user_id(current_user.user_id)
-    if active_sub and active_sub.external_subscription_id:
-        await gateway.cancel_subscription(active_sub.external_subscription_id)
-        updated = Subscription(
-            id=active_sub.id,
-            user_id=active_sub.user_id,
-            plan_id=active_sub.plan_id,
-            status=SubscriptionStatus.CANCELLED,
-            provider=active_sub.provider,
-            external_subscription_id=active_sub.external_subscription_id,
-            external_customer_id=active_sub.external_customer_id,
-            current_period_start=active_sub.current_period_start,
-            current_period_end=active_sub.current_period_end,
-            cancelled_at=active_sub.cancelled_at,
-            snapshot=active_sub.snapshot,
-        )
-        await sub_repo.save(updated)
+
+    if not active_sub or not active_sub.external_subscription_id:
         return CancelSubscriptionResponse(
             status="cancelled",
-            current_period_end=active_sub.current_period_end,
+            current_period_end=None,
         )
 
-    return CancelSubscriptionResponse(status="cancelled", current_period_end=None)
+    await gateway.cancel_subscription(active_sub.external_subscription_id)
+
+    updated = Subscription(
+        id=active_sub.id,
+        user_id=active_sub.user_id,
+        plan_id=active_sub.plan_id,
+        status=SubscriptionStatus.CANCELLED,
+        provider=active_sub.provider,
+        external_subscription_id=active_sub.external_subscription_id,
+        external_customer_id=active_sub.external_customer_id,
+        current_period_start=active_sub.current_period_start,
+        current_period_end=active_sub.current_period_end,
+        cancelled_at=active_sub.cancelled_at,
+        snapshot=active_sub.snapshot,
+    )
+    await sub_repo.save(updated)
+
+    return CancelSubscriptionResponse(
+        status="cancelled",
+        current_period_end=active_sub.current_period_end,
+    )

@@ -2,12 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.application.use_case.subscription import PlanNotFoundError
 from app.application.use_case.subscription.command import InitiateCheckoutCommand
-from app.application.use_case.subscription.exceptions import TrailPlanNotFoundError
+from app.application.use_case.subscription.exceptions import (
+    AlreadyHaveActiveSubscriptionError,
+    TrailPlanNotFoundError,
+)
 from app.application.use_case.subscription.results import CheckoutSessionResult
 from app.core.config import settings
-from app.core.exceptions import ActiveSubscriptionError
 from app.domain.entities.plan import Plan, PlanCode
 from app.domain.entities.subscription import (
     Subscription,
@@ -57,7 +58,7 @@ class InitiateCheckoutUseCase:
     async def execute(self, cm: InitiateCheckoutCommand) -> CheckoutSessionResult:
         plan = await self._plan_repo.get_by_code(cm.plan_code)
         if not plan or not plan.is_active or plan.is_deleted:
-            raise PlanNotFoundError(cm.plan_code)
+            raise AlreadyHaveActiveSubscriptionError()
 
         now = datetime.now(UTC)
         current_sub = await self._subscription_repo.get_active_by_user_id(cm.user.user_id)
@@ -83,9 +84,7 @@ class InitiateCheckoutUseCase:
                         first_charge_time = period_end
                 else:
                     if current_sub.is_active:
-                        raise ActiveSubscriptionError(
-                            "You already have an active subscription to this plan."
-                        )
+                        raise AlreadyHaveActiveSubscriptionError()
 
                     first_charge_time = period_end
 
