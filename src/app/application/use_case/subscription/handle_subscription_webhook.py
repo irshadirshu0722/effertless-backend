@@ -4,10 +4,10 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from app.application.use_case.subscription.command import SubscriptionWebhookCommand
 from app.core.exceptions import InvalidWebhookSignatureError
 from app.domain.entities.subscription import (
     Subscription,
-    SubscriptionOperationType,
     SubscriptionStatus,
 )
 from app.ports.repository import (
@@ -99,15 +99,13 @@ class HandleSubscriptionWebhookUseCase:
         subscription: Subscription,
         status: SubscriptionStatus,
         now: datetime,
-        force_deactivate: bool = False,
     ) -> Subscription:
         """Persist status while retaining the billing dates."""
         has_period_remaining = subscription.current_period_end > now
         is_active = status == SubscriptionStatus.ACTIVE or (
             status == SubscriptionStatus.CANCELLED and has_period_remaining
         )
-        is_active = False if force_deactivate else is_active
-        request_logger.info("Force deacctivation %s and active %s", force_deactivate, is_active)
+        request_logger.info("active %s", is_active)
         if status == SubscriptionStatus.ACTIVE:
             cancelled_at = None
         elif status in {
@@ -170,8 +168,6 @@ class HandleSubscriptionWebhookUseCase:
         subscription_details: dict[str, Any],
         now: datetime,
     ) -> None:
-        """Handle activation, renewal, upgrade, downgrade and cancellation."""
-
         subscription_id = str(
             subscription_details.get("subscription_id") or data.get("subscription_id") or ""
         )
@@ -205,8 +201,6 @@ class HandleSubscriptionWebhookUseCase:
             provider_status,
         )
 
-        # Update the Status
-        operation_type = incoming.operation_type
         request_logger.info("Subscription operation type: %s", incoming.operation_type.value)
         try:
             new_status = SubscriptionStatus(provider_status)
@@ -217,43 +211,24 @@ class HandleSubscriptionWebhookUseCase:
                 provider_status,
             )
             return
-        related: Subscription | None = None
-        force_deactivate = False
-        if operation_type == SubscriptionOperationType.UPGRADE:
-            force_deactivate = True
-
-        if (
-            operation_type
-            in {
-                SubscriptionOperationType.UPGRADE,
-                SubscriptionOperationType.DOWNGRADE,
-            }
-            and new_status == SubscriptionStatus.ACTIVE
-        ):
+        if new_status == SubscriptionStatus.ACTIVE:
+            related: Subscription | None = None
             related_id = incoming.related_subscription_id
-
-            if related_id is None:
-                raise ValueError(f"{operation_type.value} subscription has no related subscription")
-
-            related = await self._subscription_repo.get_by_id(related_id)
-
-            if related is None:
-                raise ValueError(f"Related subscription {related_id} does not exist")
-
+            if related_id:
+                related = await self._subscription_repo.get_by_id(related_id)
         await self._save_status(incoming, new_status, now)
 
         if related is not None:
-            await self._cancel_previous_subscription(related, now, force_deactivate)
+            await self._cancel_previous_subscription(related, now)
 
-    async def execute(
-        self,
-        raw_payload: bytes,
-        signature: str,
-        timestamp: str,
-        event_data: dict[str, Any],
-    ) -> bool:
+    async def execute(self, cm: SubscriptionWebhookCommand) -> bool:
         """Verify and process only SUBSCRIPTION_STATUS_CHANGED events."""
-
+        raw_payload, signature, timestamp, event_data = (
+            cm.raw_payload,
+            cm.signature,
+            cm.timestamp,
+            cm.event_data,
+        )
         if not self._payment_gateway.verify_webhook_signature(
             raw_payload,
             signature,

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from app.application.use_case.plan.exceptions import PlanNotFoundError
 from app.application.use_case.subscription.command import InitiateCheckoutCommand
 from app.application.use_case.subscription.exceptions import (
     AlreadyHaveActiveSubscriptionError,
@@ -11,6 +12,7 @@ from app.application.use_case.subscription.results import CheckoutSessionResult
 from app.core.config import settings
 from app.domain.entities.plan import Plan, PlanCode
 from app.domain.entities.subscription import (
+    ReplacementStrategy,
     Subscription,
     SubscriptionOperationType,
     SubscriptionStatus,
@@ -58,20 +60,20 @@ class InitiateCheckoutUseCase:
     async def execute(self, cm: InitiateCheckoutCommand) -> CheckoutSessionResult:
         plan = await self._plan_repo.get_by_code(cm.plan_code)
         if not plan or not plan.is_active or plan.is_deleted:
-            raise AlreadyHaveActiveSubscriptionError()
+            raise PlanNotFoundError(plan_code=cm.plan_code)
 
         now = datetime.now(UTC)
         current_sub = await self._subscription_repo.get_active_by_user_id(cm.user.user_id)
 
         operation_type = SubscriptionOperationType.NEW
         first_charge_time: datetime | None = None
+        replacement_strategy = None
 
         if current_sub is not None:
-            period_end = (
-                current_sub.current_period_end
-                if current_sub.current_period_end.tzinfo is not None
-                else current_sub.current_period_end.replace(tzinfo=UTC)
-            )
+            period_end = current_sub.current_period_end
+
+            if period_end.tzinfo is None:
+                period_end = period_end.replace(tzinfo=UTC)
 
             if period_end > now:
                 operation_type = self._find_operation_type(
@@ -79,15 +81,25 @@ class InitiateCheckoutUseCase:
                     plan,
                 )
 
-                if operation_type != SubscriptionOperationType.RENEWAL:
-                    if not cm.replace:
-                        first_charge_time = period_end
-                else:
-                    if current_sub.is_active:
+                if operation_type == SubscriptionOperationType.RENEWAL:
+                    # An active same-plan subscription can be replaced immediately
+                    # only when the caller explicitly requests replacement.
+                    if current_sub.is_active and not cm.replace:
                         raise AlreadyHaveActiveSubscriptionError()
 
-                    first_charge_time = period_end
+                    # Immediate renewal starts now; scheduled renewal starts
+                    # after the existing period ends.
+                    first_charge_time = None if cm.replace else period_end
 
+                else:
+                    # Immediate upgrade/downgrade starts now.
+                    # Scheduled upgrade/downgrade starts at period end.
+                    if not cm.replace:
+                        first_charge_time = period_end
+
+                replacement_strategy = (
+                    ReplacementStrategy.IMMEDIATE if cm.replace else ReplacementStrategy.PERIOD_END
+                )
         has_trial = False
         trial_start = None
         trial_end = None
@@ -139,6 +151,7 @@ class InitiateCheckoutUseCase:
             snapshot_max_seconds=plan.monthly_seconds,
             snapshot_plan_name=plan.name,
             snapshot_price=plan.offer_price,
+            replacement_strategy=replacement_strategy,
         )
 
         await self._subscription_repo.save(pending_subscription)

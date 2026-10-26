@@ -32,6 +32,11 @@ class SubscriptionOperationType(StrEnum):
     DOWNGRADE = "DOWNGRADE"
 
 
+class ReplacementStrategy(StrEnum):
+    IMMEDIATE = "IMMEDIATE"
+    PERIOD_END = "PERIOD_END"
+
+
 @dataclass(slots=True)
 class Subscription:
     """User subscription entity with frozen plan entitlements."""
@@ -62,6 +67,7 @@ class Subscription:
     has_trial: bool = False
     trial_start: datetime | None = None
     trial_end: datetime | None = None
+    replacement_strategy: ReplacementStrategy | None = None
 
     def __post_init__(self) -> None:
         self.user_id = self.user_id.strip()

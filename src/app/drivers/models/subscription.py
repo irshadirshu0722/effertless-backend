@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.entities.subscription import (
+    ReplacementStrategy,
     Subscription,
     SubscriptionOperationType,
     SubscriptionStatus,
@@ -152,6 +153,12 @@ class SubscriptionModel(Base):
         onupdate=func.now(),
     )
 
+    replacement_strategy: Mapped[str] = mapped_column(
+        String(20),
+        nullable=True,
+        default=ReplacementStrategy.IMMEDIATE,
+    )
+
     def to_domain(self) -> Subscription:
         """Convert a database model into a domain entity."""
         return Subscription(
@@ -177,6 +184,7 @@ class SubscriptionModel(Base):
             has_trial=self.has_trial,
             trial_start=self.trial_start,
             trial_end=self.trial_end,
+            replacement_strategy=self.replacement_strategy,
         )
 
     @classmethod
@@ -218,4 +226,5 @@ class SubscriptionModel(Base):
             has_trial=sub.has_trial,
             trial_start=sub.trial_start,
             trial_end=sub.trial_end,
+            replacement_strategy=sub.replacement_strategy,
         )
