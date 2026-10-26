@@ -14,3 +14,23 @@ class AlreadyHaveActiveSubscriptionError(AppError):
         status_code=409,
     ):
         super().__init__(code, message, status_code)
+
+
+class InvalidWebhookSignatureError(AppError):
+    def __init__(
+        self,
+        code="INVALID_WEBHOOK_SIGNATURE",
+        message="Invalid signature",
+        status_code=401,
+    ):
+        super().__init__(code, message, status_code)
+
+
+class UnknownSubscriptionError(AppError):
+    def __init__(
+        self,
+        code="UNKNOWN_SUBSCRIPTION",
+        message="Invalid Subscription id",
+        status_code=404,
+    ):
+        super().__init__(code, message, status_code)

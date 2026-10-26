@@ -184,7 +184,9 @@ class SubscriptionModel(Base):
             has_trial=self.has_trial,
             trial_start=self.trial_start,
             trial_end=self.trial_end,
-            replacement_strategy=self.replacement_strategy,
+            replacement_strategy=ReplacementStrategy(self.replacement_strategy)
+            if self.replacement_strategy
+            else None,
         )
 
     @classmethod
@@ -226,5 +228,7 @@ class SubscriptionModel(Base):
             has_trial=sub.has_trial,
             trial_start=sub.trial_start,
             trial_end=sub.trial_end,
-            replacement_strategy=sub.replacement_strategy,
+            replacement_strategy=sub.replacement_strategy.value
+            if sub.replacement_strategy
+            else None,
         )

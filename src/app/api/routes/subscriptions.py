@@ -9,45 +9,35 @@ from app.api.dependencies import (
     get_current_user,
     get_handle_webhook_use_case,
     get_initiate_checkout_use_case,
-    get_list_plans_use_case,
-    get_payment_gateway,
-    get_subscription_repo,
 )
-from app.application.use_case.list_plans import ListPlansUseCase
-from app.application.use_case.subscription.command import InitiateCheckoutCommand
-from app.application.use_case.subscription.handle_subscription_webhook import (
-    HandleSubscriptionWebhookUseCase,
+from app.application.use_case.subscription.command import (
+    InitiateCheckoutCommand,
+    SubscriptionWebhookCommand,
 )
 from app.application.use_case.subscription.initiate_checkout import (
     InitiateCheckoutUseCase,
 )
 from app.domain.entities.authenticated_user import AuthenticatedUser
-from app.domain.entities.subscription import Subscription, SubscriptionStatus
-from app.ports.repository import SubscriptionRepository
-from app.ports.services import PaymentGateway
 from app.schemas.subscriptions import (
-    CancelSubscriptionResponse,
     CheckoutRequest,
     CheckoutResponse,
-    PlanResponse,
-    PlansListResponse,
     WebhookResponse,
 )
 
 router = APIRouter(prefix="/subscriptions", tags=["Subscriptions"])
 
 
-@router.get(
-    "/plans",
-    response_model=PlansListResponse,
-    status_code=status.HTTP_200_OK,
-    summary="List available subscription plans",
-)
-async def list_plans(
-    use_case: Annotated[ListPlansUseCase, Depends(get_list_plans_use_case)],
-) -> PlansListResponse:
-    plans = await use_case.execute()
-    return PlansListResponse(plans=[PlanResponse.model_validate(plan) for plan in plans])
+# @router.get(
+#     "/plans",
+#     response_model=PlansListResponse,
+#     status_code=status.HTTP_200_OK,
+#     summary="List available subscription plans",
+# )
+# async def list_plans(
+#     use_case: Annotated[ListPlansUseCase, Depends(get_list_plans_use_case)],
+# ) -> PlansListResponse:
+#     plans = await use_case.execute()
+#     return PlansListResponse(plans=[PlanResponse.model_validate(plan) for plan in plans])
 
 
 # @router.get(
@@ -100,10 +90,7 @@ async def create_checkout(
 )
 async def handle_webhook(
     request: Request,
-    use_case: Annotated[
-        HandleSubscriptionWebhookUseCase,
-        Depends(get_handle_webhook_use_case),
-    ],
+    use_case=Depends(get_handle_webhook_use_case),
     x_webhook_signature: Annotated[str | None, Header(alias="x-webhook-signature")] = None,
     x_webhook_timestamp: Annotated[str | None, Header(alias="x-webhook-timestamp")] = None,
 ) -> WebhookResponse:
@@ -115,52 +102,54 @@ async def handle_webhook(
         event_data = {}
 
     await use_case.execute(
-        raw_payload=raw_payload,
-        signature=x_webhook_signature or "",
-        timestamp=x_webhook_timestamp or "",
-        event_data=event_data,
+        SubscriptionWebhookCommand(
+            raw_payload=raw_payload,
+            signature=x_webhook_signature or "",
+            timestamp=x_webhook_timestamp or "",
+            event_data=event_data,
+        )
     )
 
     return WebhookResponse(status="acknowledged")
 
 
-@router.post(
-    "/cancel",
-    response_model=CancelSubscriptionResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Cancel active subscription",
-)
-async def cancel_subscription(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-    sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
-    gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
-) -> CancelSubscriptionResponse:
-    active_sub = await sub_repo.get_active_by_user_id(current_user.user_id)
+# @router.post(
+#     "/cancel",
+#     response_model=CancelSubscriptionResponse,
+#     status_code=status.HTTP_200_OK,
+#     summary="Cancel active subscription",
+# )
+# async def cancel_subscription(
+#     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+#     sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
+#     gateway: Annotated[PaymentGateway, Depends(get_payment_gateway)],
+# ) -> CancelSubscriptionResponse:
+#     active_sub = await sub_repo.get_active_by_user_id(current_user.user_id)
 
-    if not active_sub or not active_sub.external_subscription_id:
-        return CancelSubscriptionResponse(
-            status="cancelled",
-            current_period_end=None,
-        )
+#     if not active_sub or not active_sub.external_subscription_id:
+#         return CancelSubscriptionResponse(
+#             status="cancelled",
+#             current_period_end=None,
+#         )
 
-    await gateway.cancel_subscription(active_sub.external_subscription_id)
+#     await gateway.cancel_subscription(active_sub.external_subscription_id)
 
-    updated = Subscription(
-        id=active_sub.id,
-        user_id=active_sub.user_id,
-        plan_id=active_sub.plan_id,
-        status=SubscriptionStatus.CANCELLED,
-        provider=active_sub.provider,
-        external_subscription_id=active_sub.external_subscription_id,
-        external_customer_id=active_sub.external_customer_id,
-        current_period_start=active_sub.current_period_start,
-        current_period_end=active_sub.current_period_end,
-        cancelled_at=active_sub.cancelled_at,
-        snapshot=active_sub.snapshot,
-    )
-    await sub_repo.save(updated)
+#     updated = Subscription(
+#         id=active_sub.id,
+#         user_id=active_sub.user_id,
+#         plan_id=active_sub.plan_id,
+#         status=SubscriptionStatus.CANCELLED,
+#         provider=active_sub.provider,
+#         external_subscription_id=active_sub.external_subscription_id,
+#         external_customer_id=active_sub.external_customer_id,
+#         current_period_start=active_sub.current_period_start,
+#         current_period_end=active_sub.current_period_end,
+#         cancelled_at=active_sub.cancelled_at,
+#         snapshot=active_sub.snapshot,
+#     )
+#     await sub_repo.save(updated)
 
-    return CancelSubscriptionResponse(
-        status="cancelled",
-        current_period_end=active_sub.current_period_end,
-    )
+#     return CancelSubscriptionResponse(
+#         status="cancelled",
+#         current_period_end=active_sub.current_period_end,
+#     )

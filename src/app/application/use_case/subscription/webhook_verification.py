@@ -5,8 +5,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.application.use_case.subscription.command import SubscriptionWebhookCommand
-from app.core.exceptions import InvalidWebhookSignatureError
+from app.application.use_case.subscription.exceptions import (
+    InvalidWebhookSignatureError,
+    UnknownSubscriptionError,
+)
 from app.domain.entities.subscription import (
+    ReplacementStrategy,
     Subscription,
     SubscriptionStatus,
 )
@@ -22,7 +26,7 @@ from app.ports.services import (
 request_logger = logging.getLogger("app.requests")
 
 
-class HandleSubscriptionWebhookUseCase:
+class WebhookVerificationUseCase:
     """Process Cashfree subscription status changes idempotently."""
 
     def __init__(
@@ -94,73 +98,98 @@ class HandleSubscriptionWebhookUseCase:
 
         return subscription
 
+    @staticmethod
+    def _calculate_is_active(
+        status: SubscriptionStatus,
+        replacement_strategy: ReplacementStrategy | None,
+        current_period_end: datetime,
+        now: datetime,
+    ) -> bool:
+        period_end = (
+            current_period_end.replace(tzinfo=UTC)
+            if current_period_end.tzinfo is None
+            else current_period_end.astimezone(UTC)
+        )
+
+        if status == SubscriptionStatus.ACTIVE:
+            return True
+
+        if status in {
+            SubscriptionStatus.CANCELLED,
+            SubscriptionStatus.CUSTOMER_CANCELLED,
+        }:
+            return replacement_strategy == ReplacementStrategy.PERIOD_END and now < period_end
+
+        if status in {
+            SubscriptionStatus.COMPLETED,
+            SubscriptionStatus.EXPIRED,
+            SubscriptionStatus.LINK_EXPIRED,
+            SubscriptionStatus.CARD_EXPIRED,
+            SubscriptionStatus.PENDING,
+        }:
+            return False
+
+        # Define the access policy explicitly for statuses such as ON_HOLD.
+        return False
+
     async def _save_status(
         self,
         subscription: Subscription,
         status: SubscriptionStatus,
         now: datetime,
     ) -> Subscription:
-        """Persist status while retaining the billing dates."""
-        has_period_remaining = subscription.current_period_end > now
-        is_active = status == SubscriptionStatus.ACTIVE or (
-            status == SubscriptionStatus.CANCELLED and has_period_remaining
+        """Persist provider status and calculate whether access is granted."""
+
+        is_active = self._calculate_is_active(
+            status=status,
+            replacement_strategy=subscription.replacement_strategy,
+            current_period_end=subscription.current_period_end,
+            now=now,
         )
-        request_logger.info("active %s", is_active)
+
         if status == SubscriptionStatus.ACTIVE:
             cancelled_at = None
         elif status in {
             SubscriptionStatus.CANCELLED,
+            SubscriptionStatus.CUSTOMER_CANCELLED,
+            SubscriptionStatus.COMPLETED,
             SubscriptionStatus.EXPIRED,
+            SubscriptionStatus.LINK_EXPIRED,
+            SubscriptionStatus.CARD_EXPIRED,
         }:
             cancelled_at = subscription.cancelled_at or now
         else:
             cancelled_at = subscription.cancelled_at
 
-        updated = Subscription(
-            id=subscription.id,
-            user_id=subscription.user_id,
-            plan_id=subscription.plan_id,
-            status=status,
-            provider=subscription.provider,
-            external_subscription_id=subscription.external_subscription_id,
-            external_customer_id=subscription.external_customer_id,
-            current_period_start=subscription.current_period_start,
-            current_period_end=subscription.current_period_end,
-            cancelled_at=cancelled_at,
-            is_active=is_active,
-            operation_type=subscription.operation_type,
-            related_subscription_id=subscription.related_subscription_id,
-            snapshot=subscription.snapshot,
-            created_at=subscription.created_at,
-            updated_at=now,
-        )
+        subscription.status = status
+        subscription.cancelled_at = cancelled_at
+        subscription.is_active = is_active
+        subscription.updated_at = now
+
+        updated = subscription
 
         await self._subscription_repo.save(updated)
 
         request_logger.info(
-            "Subscription status updated: user_id=%s subscription_id=%s status=%s",
+            "Subscription status updated: user_id=%s subscription_id=%s status=%s is_active=%s",
             updated.user_id,
             updated.external_subscription_id,
             updated.status,
+            updated.is_active,
         )
 
         return updated
 
-    async def _cancel_previous_subscription(
-        self, current: Subscription, now: datetime, force_deactivate: bool = False
-    ) -> None:
+    async def _cancel_previous_subscription(self, current: Subscription, now: datetime) -> None:
         """Cancel a previous subscription if it is still live."""
 
-        if current.status in {
-            SubscriptionStatus.CANCELLED,
-            SubscriptionStatus.EXPIRED,
-        }:
+        if current.status in {SubscriptionStatus.CANCELLED, SubscriptionStatus.CUSTOMER_CANCELLED}:
             return
 
         if current.external_subscription_id:
             await self._payment_gateway.cancel_subscription(current.external_subscription_id)
 
-        await self._save_status(current, SubscriptionStatus.CANCELLED, now, force_deactivate)
+        await self._save_status(current, SubscriptionStatus.CANCELLED, now)
 
     async def _handle_status_changed(
         self,
@@ -187,10 +216,8 @@ class HandleSubscriptionWebhookUseCase:
         )
 
         if incoming is None:
-            raise ValueError(
-                "No local subscription found for Cashfree subscription "
-                f"{subscription_id or cf_subscription_id}"
-            )
+            raise UnknownSubscriptionError()
+        replacement_strategy = incoming.replacement_strategy
 
         request_logger.info(
             "Processing subscription status change: user_id=%s "
@@ -211,6 +238,8 @@ class HandleSubscriptionWebhookUseCase:
                 provider_status,
             )
             return
+        related: Subscription | None = None
+
         if new_status == SubscriptionStatus.ACTIVE:
             related: Subscription | None = None
             related_id = incoming.related_subscription_id
@@ -218,7 +247,7 @@ class HandleSubscriptionWebhookUseCase:
                 related = await self._subscription_repo.get_by_id(related_id)
         await self._save_status(incoming, new_status, now)
 
-        if related is not None:
+        if related and replacement_strategy == ReplacementStrategy.IMMEDIATE:
             await self._cancel_previous_subscription(related, now)
 
     async def execute(self, cm: SubscriptionWebhookCommand) -> bool:

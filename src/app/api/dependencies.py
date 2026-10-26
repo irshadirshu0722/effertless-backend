@@ -22,10 +22,8 @@ from app.adapters.services import CashfreeSubscriptionAdapter, GcpIdentityVerifi
 from app.application.use_case.check_entitlement import CheckEntitlementUseCase
 from app.application.use_case.list_plans import ListPlansUseCase
 from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
-from app.application.use_case.subscription.handle_subscription_webhook import (
-    HandleSubscriptionWebhookUseCase,
-)
 from app.application.use_case.subscription.initiate_checkout import InitiateCheckoutUseCase
+from app.application.use_case.subscription.webhook_verification import WebhookVerificationUseCase
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AuthenticationRequiredError, InvalidAuthTokenError
 from app.drivers.config.database import create_engine, create_session_factory
@@ -196,8 +194,8 @@ def get_handle_webhook_use_case(
     webhook_repo: Annotated[WebhookEventRepository, Depends(get_webhook_repo)],
     sub_repo: Annotated[SubscriptionRepository, Depends(get_subscription_repo)],
     plan_repo: Annotated[PlanRepository, Depends(get_plan_repo)],
-) -> HandleSubscriptionWebhookUseCase:
-    return HandleSubscriptionWebhookUseCase(gateway, webhook_repo, sub_repo, plan_repo)
+) -> WebhookVerificationUseCase:
+    return WebhookVerificationUseCase(gateway, webhook_repo, sub_repo, plan_repo)
 
 
 def get_check_entitlement_use_case(

@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.application.use_case.subscription import InitiateCheckoutUseCase
+from app.application.use_case.subscription import (
+    InitiateCheckoutUseCase,
+    WebhookVerificationUseCase,
+)
 from tests.factories.make_plan import make_plan_data
 
 
@@ -18,6 +21,16 @@ def initiate_checkout_service(
         payment_gateway=payment_gateway,
         plan_repo=plan_repo,
         subscription_repo=subscription_repo,
+    )
+
+
+@pytest.fixture
+def webhook_verification_service(subscription_repo, payment_gateway, plan_repo, webhook_repo):
+    return WebhookVerificationUseCase(
+        payment_gateway=payment_gateway,
+        plan_repo=plan_repo,
+        subscription_repo=subscription_repo,
+        webhook_repo=webhook_repo,
     )
 
 
