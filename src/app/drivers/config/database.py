@@ -19,7 +19,7 @@ def create_engine(settings: Settings = get_settings()) -> AsyncEngine:
 
 
 def create_session_factory(
-    engine: AsyncEngine = create_async_engine(),
+    engine: AsyncEngine = create_engine(),
 ) -> async_sessionmaker[AsyncSession]:
     """Create the application async session factory."""
     return async_sessionmaker(engine, expire_on_commit=False)

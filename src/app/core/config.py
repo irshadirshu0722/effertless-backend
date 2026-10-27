@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     # Tier quotas and free trial defaults
     free_tier_days: int = 7
+    free_tier_monthly_seconds: int = 200
 
     # Persistence
     database_url: str = ""

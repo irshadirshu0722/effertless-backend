@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.adapters.repositories.postgres_plan_repo import PostgresPlanRepository
 from app.core.config import settings
 from app.core.logging import logging
-from app.domain.entities.plan import Plan
+from app.domain.entities.plan import Plan, PlanCode
 from app.drivers.config.database import create_engine, create_session_factory
 
 bootstrap_logger = logging.getLogger("app.bootstrap")
@@ -17,8 +17,7 @@ async def create_or_update_trail_plan() -> None:
     engine = create_engine()
     session_factory: async_sessionmaker[AsyncSession] = create_session_factory(engine)
 
-    max_seconds_per_request = settings.free_tier_max_seconds
-    max_requests_per_day = settings.free_tier_max_requests_per_day
+    free_tier_monthly_seconds = settings.free_tier_monthly_seconds
 
     try:
         async with session_factory() as session, session.begin():
@@ -29,11 +28,10 @@ async def create_or_update_trail_plan() -> None:
 
                 new_plan = Plan(
                     actual_price=Decimal(2),
-                    code="trail",
+                    code=PlanCode.TRAIL,
                     currency="INR",
                     is_active=True,
-                    max_seconds_per_request=max_seconds_per_request,
-                    max_usage_per_day=max_requests_per_day,
+                    monthly_seconds=free_tier_monthly_seconds,
                     offer_price=Decimal(1),
                     name="trail",
                 )
@@ -44,8 +42,7 @@ async def create_or_update_trail_plan() -> None:
             else:
                 bootstrap_logger.info("Trial plan found; updating usage limits: code='trail'")
 
-                trial_plan.max_seconds_per_request = max_seconds_per_request
-                trial_plan.max_usage_per_day = max_requests_per_day
+                trial_plan.free_tier_monthly_seconds = free_tier_monthly_seconds
 
                 await plan_repo.update(trial_plan)
 

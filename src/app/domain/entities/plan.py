@@ -56,7 +56,7 @@ class Plan:
             raise ValueError("code must be BASIC, STANDARD, or PRO") from exc
 
     def _validate_name(self) -> None:
-        self.name = self.name.strip()
+        self.name = self.name.strip().capitalize()
 
         if not self.name:
             raise ValueError("name cannot be empty")

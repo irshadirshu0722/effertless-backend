@@ -99,7 +99,48 @@ services:
         condition: service_healthy
     networks:
       - backend-network
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${CELERY_WORKER_CONTAINER_NAME}
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+      POSTGRES_HOST: ${DOCKER_POSTGRES_HOST}
+      POSTGRES_PORT: ${DOCKER_POSTGRES_PORT}
+      REDIS_URL: ${DOCKER_REDIS_URL}
+      REDIS0_HOST: ${DOCKER_REDIS_HOST}
+      REDIS_PORT: ${DOCKER_REDIS_PORT}
 
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      AUTH_CHECK_REVOKED: ${AUTH_CHECK_REVOKED:-true}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-service-account.json
+
+    volumes:
+      - .:/app
+      - ./gcp-service-account.json:/run/secrets/gcp-service-account.json:ro
+
+    command:
+      [
+        "celery",
+        "-A",
+        "app.drivers.celery_app.celery:celery_app",
+        "worker",
+        "--loglevel=info",
+      ]
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    networks:
+      - backend-network
 networks:
   backend-network:
     name: ${BACKEND_NETWORK_NAME}
