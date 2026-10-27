@@ -4,6 +4,7 @@ import pytest_asyncio
 from app.adapters.repositories import (
     PostgresCreditRepository,
     PostgresCreditTransactionRepository,
+    PostgresPaymentRetryRepository,
     PostgresPlanRepository,
     PostgresSubscriptionRepository,
     PostgresTopUpRepository,
@@ -16,6 +17,11 @@ from tests.factories import make_plan_data
 @pytest.fixture
 def subscription_repo(db_session):
     return PostgresSubscriptionRepository(session=db_session)
+
+
+@pytest.fixture
+def payment_retry_repo(db_session):
+    return PostgresPaymentRetryRepository(session=db_session)
 
 
 @pytest.fixture
