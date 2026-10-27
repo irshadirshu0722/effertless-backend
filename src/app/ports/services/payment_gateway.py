@@ -43,3 +43,10 @@ class PaymentGateway(Protocol):
         timestamp: str,
     ) -> bool:
         """Verify the authenticity of a payment provider webhook."""
+
+    async def retry_subscription_payment(
+        self,
+        external_subscription_id: str,
+        idempotency_key: str,
+    ) -> str:
+        """Initiate a supported retry and return its payment-attempt ID."""

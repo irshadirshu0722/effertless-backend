@@ -19,6 +19,9 @@ from app.adapters.repositories import (
     PostgresWebhookEventRepository,
 )
 from app.adapters.services import CashfreeSubscriptionAdapter, GcpIdentityVerifier
+from app.adapters.services.payment_retry_scheduler.celery_payment_retry_scheduler import (
+    CeleryPaymentRetryScheduler,
+)
 from app.application.use_case.check_entitlement import CheckEntitlementUseCase
 from app.application.use_case.list_plans import ListPlansUseCase
 from app.application.use_case.subscription.get_user_subscription import GetUserSubscriptionUseCase
@@ -161,6 +164,10 @@ def get_payment_gateway(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PaymentGateway:
     return CashfreeSubscriptionAdapter(settings)
+
+
+def get_payment_retry_scheduler() -> CeleryPaymentRetryScheduler:
+    return CeleryPaymentRetryScheduler()
 
 
 # ---------------------------------------------------------------------------
